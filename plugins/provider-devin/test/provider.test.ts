@@ -92,6 +92,7 @@ describe('sandbox write scopes', () => {
     expect(await buildTurnConfig({ DEVIN_CONFIG_PATH: userConfig })).toBeNull();
     const docker = await buildTurnConfig({ DEVIN_CONFIG_PATH: userConfig }, undefined, { allowDocker: true });
     expect((docker?.permissions as { allow: string[] }).allow).toContain('Exec(docker)');
+    expect((docker?.permissions as { allow: string[] }).allow.some(rule => rule.endsWith('/.docker/**)'))).toBe(true);
     expect(docker?.sandbox).toEqual({ excluded: { allow: ['Exec(docker)'], ask: [], deny: [] } });
   });
 });

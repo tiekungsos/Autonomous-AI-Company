@@ -112,7 +112,10 @@ export async function buildTurnConfig(
   cwd?: string,
   options: { allowDocker?: boolean } = {}
 ): Promise<Record<string, unknown> | null> {
-  const scopes = writableScopes(env, cwd);
+  // Docker's CLI (compose in particular) writes its context and run state under ~/.docker;
+  // without the grant `docker compose up` asks for access, which print mode must refuse.
+  const dockerHome = join(env.HOME ?? homedir(), '.docker');
+  const scopes = [...writableScopes(env, cwd), ...(options.allowDocker ? [`Write(${dockerHome})`, `Write(${dockerHome}/**)`] : [])];
   const execRules = options.allowDocker ? [...DOCKER_EXEC_RULES] : [];
   if (scopes.length === 0 && execRules.length === 0) return null;
   const userConfigPath = env.DEVIN_CONFIG_PATH ?? join(homedir(), '.config', 'devin', 'config.json');
@@ -401,7 +404,7 @@ export class DevinProvider implements IAgentProvider {
       await writeFile(
         promptPath,
         augmentPromptForJsonSchema(
-          'Your previous message was not the required JSON. Do not run any more tools and do not ask for permissions or access: if something was blocked, say so inside the JSON fields. Answer now with the JSON object only.',
+          'Your previous message was not the required JSON. Do not ask for permissions or access. If your instructions required you to write a file (a report, an artifact) that you have not written yet, write it now; never name a file in the JSON that does not exist. If something was blocked, say so inside the JSON fields. Then answer with the JSON object only.',
           schema
         )
       );
