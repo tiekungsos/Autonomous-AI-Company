@@ -2,6 +2,8 @@
 
 This workspace turns **Archon v0.12.1** into an autonomous AI software company. Archon executes every AI workflow; the **Company Layer** (inside Archon's server) decides what to run, with which engine, and whether results are good enough. Everything below is what a new agent needs to continue the work without re-discovering it. The chronological record of what was done, why, and what is still open is in [`docs/worklog.md`](docs/worklog.md); read its "Current state" and "Next steps" sections before changing anything.
 
+Repository: git@github.com:tiekungsos/Autonomous-AI-Company.git (`main`). `archon/` is not in it: `scripts/setup` clones Archon at `patches/BASE` and applies `patches/*.patch`. Before committing, run `scripts/export-patches` so the patch matches `archon/`.
+
 ## Map
 
 | Path | What it is | Notes |

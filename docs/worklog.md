@@ -65,3 +65,6 @@ Chronological record of the build, for whoever continues it (human or AI). Times
 - T1 attempt 4 created every file but committed nothing (`changed_files: 0`): a git worktree stores objects/refs/index in the main repository's `.git`, outside the worktree, so the sandbox blocked `git commit`. The plugin now grants `git rev-parse --git-common-dir` too; reproduced a sandboxed commit inside a worktree successfully.
 - Restart-orphaned attempts no longer count against the retry limit (`attempt_base` +1 on orphan). T1 attempt 7 dispatched (run `e1de236f`).
 - Mistake corrected: running `plugins/provider-devin/scripts/install.ts` without `ARCHON_HOME` wrote into `~/.archon`; removed those two files and changed the installer default to the workspace's `data/archon-home`.
+
+### 2026-10-19 — published
+- Pushed to `git@github.com:tiekungsos/Autonomous-AI-Company.git` (`main`, commit `ec653c5`). `archon/` and `data/` are excluded; the Archon changes ship as `patches/0001-autonomous-ai-company.patch` (verified to apply cleanly to a fresh `v0.12.1`), and `scripts/setup` now clones Archon and applies it when `archon/` is missing. Secret scan of the commit found nothing.
