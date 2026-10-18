@@ -77,3 +77,8 @@ Chronological record of the build, for whoever continues it (human or AI). Times
 
 ### 2026-10-19 00:40 — test mode
 - Operator asked to run everything on Devin SWE-2 High while testing to avoid token cost. Added `COMPANY_MODEL_OVERRIDE=<engine>/<model>` (engines.ts: `modelOverride`, used by `selectEngine`, `roleBindings` and the boot-time alias sync), set to `devin/swe-2-high` in `data/archon-home/.env`. Verified: T1's re-dispatched run `8da7824a` has every alias and tier bound to `devin/swe-2-high`. Remove the line to restore the roles.yaml mapping.
+
+### 2026-10-19 00:50–01:10 — T1 reaches review; retries now continue the branch
+- Run `8da7824a` (test mode, swe-2-high): implement green, `archon-validate` green, all five review lenses ran. Review returned `ready: false, action: correct` with three verified blocking findings (Settings base_url normalisation only on the env path; no test for the 400/500 handlers; no test for `load_settings()` env mapping; mutations confirmed green). The review stage works as intended.
+- Defect: a retry started fresh from `main`, discarding commits that had passed validation, and the brief only said "review did not approve". Fixes: `task-verdict.ts` carries the review's `findings_summary`; a retry after `red at validate|review` dispatches with Archon adoption (`workflowAdoptRunId` = previous run; model overrides omitted because adoption inherits the run's AI policy) and a "Continue the previous attempt" brief pointing at `$ADOPTED_RUN_DIR/review/report.md`; a restart-orphaned task attempt keeps the last real verdict so the adoption target survives. Covered by the scheduler test.
+- Verified: T1 attempt 12 (run `78772c5b`) has `adopted_from_run_id = 8da7824a`.

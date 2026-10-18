@@ -365,10 +365,10 @@ index 000000000..94f5fc412
 +}
 diff --git a/packages/server/src/company/dispatch.ts b/packages/server/src/company/dispatch.ts
 new file mode 100644
-index 000000000..15d782d66
+index 000000000..490a7b05e
 --- /dev/null
 +++ b/packages/server/src/company/dispatch.ts
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,147 @@
 +/**
 + * Dispatch an Archon workflow run from inside the server process, the way the
 + * `POST /api/workflows/:name/run` route does: one fresh web conversation per
@@ -408,6 +408,8 @@ index 000000000..15d782d66
 +  inputs?: Record<string, string>;
 +  tiers?: { small: string; medium: string; large: string };
 +  aliases?: Record<string, string>;
++  /** Continue in this terminal run's exact worktree and branch (Archon adoption). Inherits its AI policy, so no model overrides are sent. */
++  adoptRunId?: string;
 +  /** Called when the orchestrator throws after the dispatch was accepted. */
 +  onError?: (error: Error) => Promise<void> | void;
 +}
@@ -433,9 +435,11 @@ index 000000000..15d782d66
 +        actor: { kind: 'operator' },
 +        workflowName: request.workflowName,
 +        ...(request.inputs && Object.keys(request.inputs).length > 0 ? { workflowInputs: request.inputs } : {}),
-+        ...(request.tiers || request.aliases
-+          ? { workflowModelOverrides: { ...(request.tiers ? { tiers: request.tiers } : {}), ...(request.aliases ? { aliases: request.aliases } : {}) } }
-+          : {}),
++        ...(request.adoptRunId
++          ? { workflowAdoptRunId: request.adoptRunId }
++          : request.tiers || request.aliases
++            ? { workflowModelOverrides: { ...(request.tiers ? { tiers: request.tiers } : {}), ...(request.aliases ? { aliases: request.aliases } : {}) } }
++            : {}),
 +      });
 +    } catch (error) {
 +      await webAdapter.emitSSE(
@@ -1389,10 +1393,10 @@ index 000000000..83186ba6a
 +}
 diff --git a/packages/server/src/company/scheduler.test.ts b/packages/server/src/company/scheduler.test.ts
 new file mode 100644
-index 000000000..cac08ce0d
+index 000000000..36d7fce71
 --- /dev/null
 +++ b/packages/server/src/company/scheduler.test.ts
-@@ -0,0 +1,313 @@
+@@ -0,0 +1,315 @@
 +/**
 + * Lifecycle test with Archon's dispatch, run reads, git integration and engine
 + * checks replaced by in-memory fakes. Proves the scheduler's state machine:
@@ -1405,7 +1409,7 @@ index 000000000..cac08ce0d
 +import { join } from 'node:path';
 +
 +type Json = Record<string, unknown>;
-+const dispatched: { workflowName: string; inputs: Record<string, string>; conversationDbId: string; aliases?: Record<string, string>; tiers?: Record<string, string> }[] = [];
++const dispatched: { workflowName: string; inputs: Record<string, string>; conversationDbId: string; aliases?: Record<string, string>; tiers?: Record<string, string>; adoptRunId?: string }[] = [];
 +const runs = new Map<string, { id: string; status: string; outcome: string | null; metadata: Json; started_at: Date; last_activity_at: Date | null; output_root: string | null }>();
 +const conversationRuns = new Map<string, string>();
 +const returns = new Map<string, Json>();
@@ -1415,10 +1419,10 @@ index 000000000..cac08ce0d
 +
 +mock.module('./dispatch', () => ({
 +  configureDispatch: () => undefined,
-+  dispatchWorkflow: async (request: { workflowName: string; inputs?: Record<string, string>; aliases?: Record<string, string>; tiers?: Record<string, string> }) => {
++  dispatchWorkflow: async (request: { workflowName: string; inputs?: Record<string, string>; aliases?: Record<string, string>; tiers?: Record<string, string>; adoptRunId?: string }) => {
 +    conversationCounter += 1;
 +    const conversationDbId = `conv-${String(conversationCounter)}`;
-+    dispatched.push({ workflowName: request.workflowName, inputs: request.inputs ?? {}, conversationDbId, aliases: request.aliases, tiers: request.tiers });
++    dispatched.push({ workflowName: request.workflowName, inputs: request.inputs ?? {}, conversationDbId, aliases: request.aliases, tiers: request.tiers, adoptRunId: request.adoptRunId });
 +    return { conversationId: `web-${conversationDbId}`, conversationDbId, status: 'started' };
 +  },
 +  findRunForConversation: async (conversationDbId: string) => conversationRuns.get(conversationDbId) ?? null,
@@ -1562,7 +1566,9 @@ index 000000000..cac08ce0d
 +    expect(t1row.last_summary).toContain('tests red');
 +    const t1b = await lastDispatch('company-task-execution');
 +    expect(t1b.conversationDbId).not.toBe(t1.conversationDbId);
-+    expect(t1b.inputs.task_brief).toContain('Previous attempt');
++    // Red at validate: the retry adopts the previous run's branch and carries its findings.
++    expect(t1b.adoptRunId).toBe(`run-${t1.conversationDbId}`);
++    expect(t1b.inputs.task_brief).toContain('Continue the previous attempt');
 +    finishRun(t1b.conversationDbId, 'completed', 'succeeded', { green: true, stage: 'done', red_cause: '', summary: 'done', branch: 'b1', head: 'h2', pushed: true, changed_files: 3, blocking_findings: 0 });
 +    await scheduler.tick();
 +    t1row = (await db.listTasks(project.id)).find(t => t.key === 'T1')!;
@@ -1708,10 +1714,10 @@ index 000000000..cac08ce0d
 +});
 diff --git a/packages/server/src/company/scheduler.ts b/packages/server/src/company/scheduler.ts
 new file mode 100644
-index 000000000..d44736f59
+index 000000000..ae1583a89
 --- /dev/null
 +++ b/packages/server/src/company/scheduler.ts
-@@ -0,0 +1,810 @@
+@@ -0,0 +1,825 @@
 +/**
 + * The company scheduler: one tick loop inside the server process that advances
 + * every project through its lifecycle, dispatches Archon runs for ready work,
@@ -1881,10 +1887,16 @@ index 000000000..d44736f59
 +      log.warn({ err: error, runId: run.id }, 'company.orphan_abandon_failed');
 +    }
 +    await db.addEvent({ project_id: execution.project_id, execution_id: execution.id, task_id: execution.task_id, level: 'warn', kind: 'execution.orphaned', message: `Run ${run.id} was orphaned by a server restart and abandoned; the work will be retried` });
-+    // A restart is not the task's failure: the lost attempt does not count against its retry limit.
++    // A restart is not the task's failure: the lost attempt does not count against its retry
++    // limit, and the task keeps the verdict of its last real attempt (which may name the run
++    // a retry adopts).
 +    if (execution.task_id) {
 +      const task = await db.getTask(execution.task_id);
-+      if (task) await db.updateTask(task.id, { attempt_base: task.attempt_base + 1 });
++      if (task) {
++        await db.updateExecution(execution.id, { status: 'failed', error: 'run orphaned by a server restart', finished_at: db.now() });
++        await db.updateTask(task.id, { attempt_base: task.attempt_base + 1, status: 'READY' });
++        return;
++      }
 +    }
 +    const refreshed = await readRun(run.id);
 +    if (refreshed && (refreshed.status === 'completed' || refreshed.status === 'failed' || refreshed.status === 'cancelled')) {
@@ -2070,7 +2082,7 @@ index 000000000..d44736f59
 +  workflowName: string,
 +  message: string,
 +  inputs: Record<string, string>,
-+  options: { task?: Task; idempotencyKey: string; engine?: string | null; size?: TaskSize }
++  options: { task?: Task; idempotencyKey: string; engine?: string | null; size?: TaskSize; adoptRunId?: string }
 +): Promise<Execution | null> {
 +  if (!project.codebase_id) throw new Error('project has no registered codebase');
 +  const spend = await db.projectSpend(project.id);
@@ -2114,6 +2126,7 @@ index 000000000..d44736f59
 +      inputs,
 +      tiers: bindings.tiers,
 +      aliases: bindings.aliases,
++      ...(options.adoptRunId ? { adoptRunId: options.adoptRunId } : {}),
 +      onError: async error => {
 +        await db.updateExecution(execution.id, { status: 'failed', error: error.message, finished_at: db.now() });
 +        await db.addEvent({ project_id: project.id, execution_id: execution.id, task_id: options.task?.id, level: 'error', kind: 'execution.dispatch_failed', message: error.message });
@@ -2202,7 +2215,11 @@ index 000000000..d44736f59
 +      continue;
 +    }
 +    const attempt = task.attempts + 1;
-+    const brief = await taskBrief(project, task, refreshed);
++    // A retry after a red validation or review continues the previous run's branch instead of
++    // starting over: the commits were good enough to reach that stage and the findings name
++    // what to change. Any other failure (or a refused adoption) starts fresh from the base.
++    const adoptRunId = task.run_id && /^red at (validate|review)$/.test(task.last_verdict ?? '') ? task.run_id : undefined;
++    const brief = await taskBrief(project, task, refreshed, adoptRunId !== undefined);
 +    const execution = await dispatch(
 +      project,
 +      'task',
@@ -2210,7 +2227,7 @@ index 000000000..d44736f59
 +      'company-task-execution',
 +      `${task.key}: ${task.title}`,
 +      { task_brief: brief.brief, work_order: brief.workOrder, project_commands: brief.commands },
-+      { task: task, idempotencyKey: `task:${task.id}:attempt:${String(attempt)}`, engine: task.engine, size: task.size as TaskSize }
++      { task: task, idempotencyKey: `task:${task.id}:attempt:${String(attempt)}`, engine: task.engine, size: task.size as TaskSize, adoptRunId }
 +    );
 +    if (execution) {
 +      await db.updateTask(task.id, { status: 'RUNNING', attempts: attempt, run_id: null, last_error: null });
@@ -2232,12 +2249,16 @@ index 000000000..d44736f59
 +  }
 +}
 +
-+async function taskBrief(project: Project, task: Task, all: Task[]): Promise<{ brief: string; workOrder: string; commands: string }> {
++async function taskBrief(project: Project, task: Task, all: Task[], continuing = false): Promise<{ brief: string; workOrder: string; commands: string }> {
 +  const intake = await intakeDocument(project);
 +  const docs = await db.listDocuments(project.id);
 +  const arch = docs.find(d => d.kind === 'architecture');
 +  const done = all.filter(t => t.status === 'COMPLETED').map(t => `- ${t.key}: ${t.title}`).join('\n');
-+  const history = task.last_summary || task.last_error ? `\n\nPrevious attempt (${String(task.attempts)}): ${task.last_verdict ?? ''} ${task.last_summary ?? ''} ${task.last_error ?? ''}`.trim() : '';
++  const history = continuing
++    ? `\n\n## Continue the previous attempt\nThis checkout already holds the previous attempt's commits for this task; it reached ${task.last_verdict ?? 'review'}. Keep that work and fix only what the findings below name, then commit. The previous run's artifacts are under $ADOPTED_RUN_DIR (the review report is $ADOPTED_RUN_DIR/review/report.md when review ran).\n\nFindings: ${task.last_summary ?? ''}`
++    : task.last_summary || task.last_error
++      ? `\n\nPrevious attempt (${String(task.attempts)}): ${task.last_verdict ?? ''} ${task.last_summary ?? ''} ${task.last_error ?? ''}`.trim()
++      : '';
 +  const brief = [
 +    `# Task ${task.key}: ${task.title}`,
 +    '',

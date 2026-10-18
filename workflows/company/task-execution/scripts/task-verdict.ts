@@ -32,7 +32,7 @@ if (!implement || implement.green !== true) {
 } else if (!review || review.ready !== true) {
   stage = 'review';
   red_cause = 'review';
-  summary = text(review?.summary) || 'review did not approve the change';
+  summary = text(review?.findings_summary) || text(review?.summary) || 'review did not approve the change';
 } else {
   green = true;
   summary = text(review.summary) || text(validate.summary) || text(implement.summary);
