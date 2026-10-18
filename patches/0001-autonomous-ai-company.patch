@@ -1714,10 +1714,10 @@ index 000000000..36d7fce71
 +});
 diff --git a/packages/server/src/company/scheduler.ts b/packages/server/src/company/scheduler.ts
 new file mode 100644
-index 000000000..ae1583a89
+index 000000000..34c10a247
 --- /dev/null
 +++ b/packages/server/src/company/scheduler.ts
-@@ -0,0 +1,825 @@
+@@ -0,0 +1,833 @@
 +/**
 + * The company scheduler: one tick loop inside the server process that advances
 + * every project through its lifecycle, dispatches Archon runs for ready work,
@@ -1735,7 +1735,7 @@ index 000000000..ae1583a89
 +import * as workflowEventDb from '@archon/core/db/workflow-events';
 +import { buildRunNodeStates, getTerminalRecord } from '@archon/workflows/terminal-record';
 +import * as db from './db';
-+import { dispatchOutcome, dispatchWorkflow, findRunForConversation, readRun, readRunArtifact } from './dispatch';
++import { dispatchOutcome, dispatchWorkflow, findRunForConversation, readRun, readRunArtifact, runArtifactsDir } from './dispatch';
 +import { engineStatuses, NoEngineAvailableError, roleBindings, roleProfile, selectEngine } from './engines';
 +import { ensureProjectRepo, integrateBranch, syncCheckout } from './repo';
 +import { readLimits, taskSizeFromEstimate, type CompanyLimits, type Execution, type Project, type ProjectPhase, type Task, type TaskSize } from './types';
@@ -2220,13 +2220,21 @@ index 000000000..ae1583a89
 +    // what to change. Any other failure (or a refused adoption) starts fresh from the base.
 +    const adoptRunId = task.run_id && /^red at (validate|review)$/.test(task.last_verdict ?? '') ? task.run_id : undefined;
 +    const brief = await taskBrief(project, task, refreshed, adoptRunId !== undefined);
++    // When the adopted run was reviewed, hand its report to this round's review so it verifies
++    // the prior findings and reviews only the correction delta (archon-review-block `prior_report`).
++    let priorReport = '';
++    if (adoptRunId) {
++      const previous = await readRun(adoptRunId);
++      const dir = previous ? runArtifactsDir(previous) : null;
++      if (dir && (await readRunArtifact(previous!, 'review/report.md')) !== null) priorReport = join(dir, 'review', 'report.md');
++    }
 +    const execution = await dispatch(
 +      project,
 +      'task',
 +      task.role,
 +      'company-task-execution',
 +      `${task.key}: ${task.title}`,
-+      { task_brief: brief.brief, work_order: brief.workOrder, project_commands: brief.commands },
++      { task_brief: brief.brief, work_order: brief.workOrder, project_commands: brief.commands, prior_report: priorReport },
 +      { task: task, idempotencyKey: `task:${task.id}:attempt:${String(attempt)}`, engine: task.engine, size: task.size as TaskSize, adoptRunId }
 +    );
 +    if (execution) {

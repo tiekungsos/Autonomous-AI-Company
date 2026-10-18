@@ -12,6 +12,7 @@ inputs:
   task_brief: { required: true }
   work_order: { default: "" }
   project_commands: { default: "" }
+  prior_report: { default: "" }
 
 returns: verdict
 outcome_field: green
@@ -33,6 +34,7 @@ nodes:
     when: "$validate.output.green == true"
     with:
       work_order: "$INPUTS.work_order"
+      prior_report: "$INPUTS.prior_report"
 
   - id: push
     script: push-branch
