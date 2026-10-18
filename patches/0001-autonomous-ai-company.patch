@@ -514,10 +514,10 @@ index 000000000..15d782d66
 +}
 diff --git a/packages/server/src/company/engines.test.ts b/packages/server/src/company/engines.test.ts
 new file mode 100644
-index 000000000..d05d8e77d
+index 000000000..5cb4d9962
 --- /dev/null
 +++ b/packages/server/src/company/engines.test.ts
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,63 @@
 +import { describe, expect, test } from 'bun:test';
 +import { mkdtempSync, writeFileSync } from 'node:fs';
 +import { tmpdir } from 'node:os';
@@ -568,13 +568,25 @@ index 000000000..d05d8e77d
 +    require('node:fs').utimesSync(path, future, future);
 +    expect(loadRoles(path).roles.ceo.engine).toBe('devin');
 +  });
++  test('COMPANY_MODEL_OVERRIDE binds every role, tier and size to one model', () => {
++    process.env.COMPANY_MODEL_OVERRIDE = 'devin/swe-2-high';
++    try {
++      const fresh = loadRoles(path);
++      const bound = roleBindings('devin', fresh, 'large', statuses);
++      expect(bound.tiers).toEqual({ small: 'devin/swe-2-high', medium: 'devin/swe-2-high', large: 'devin/swe-2-high' });
++      expect(new Set(Object.values(bound.aliases))).toEqual(new Set(['devin/swe-2-high']));
++      expect(selectEngine('auto', fresh.roles.ceo, statuses, fresh)).toBe('devin');
++    } finally {
++      delete process.env.COMPANY_MODEL_OVERRIDE;
++    }
++  });
 +});
 diff --git a/packages/server/src/company/engines.ts b/packages/server/src/company/engines.ts
 new file mode 100644
-index 000000000..50ab74fc1
+index 000000000..e83c1f3c8
 --- /dev/null
 +++ b/packages/server/src/company/engines.ts
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,233 @@
 +/**
 + * Role profiles and coding-engine selection. Roles are configuration
 + * (`agents/roles.yaml`); engines are Archon's registered providers. Nothing here
@@ -657,6 +669,19 @@ index 000000000..50ab74fc1
 +  throw new Error(`unknown role '${roleId}'`);
 +}
 +
++/**
++ * `COMPANY_MODEL_OVERRIDE=<engine>/<model>` (e.g. `devin/swe-2-high`) binds every role,
++ * every tier and every task size to one model: a cheap test mode. Unset to restore
++ * the per-role and per-size mapping from roles.yaml.
++ */
++export function modelOverride(env: NodeJS.ProcessEnv = process.env): { engine: string; model: string } | null {
++  const raw = env.COMPANY_MODEL_OVERRIDE?.trim();
++  if (!raw) return null;
++  const slash = raw.indexOf('/');
++  if (slash <= 0 || slash === raw.length - 1) throw new Error(`COMPANY_MODEL_OVERRIDE must be <engine>/<model>, got '${raw}'`);
++  return { engine: raw.slice(0, slash), model: raw.slice(slash + 1) };
++}
++
 +export interface EngineStatus {
 +  id: string;
 +  displayName: string;
@@ -724,6 +749,11 @@ index 000000000..50ab74fc1
 +  config: RolesConfig = loadRoles()
 +): string {
 +  const usable = new Set(statuses.filter(status => status.available).map(status => status.id));
++  const override = modelOverride();
++  if (override) {
++    if (usable.has(override.engine)) return override.engine;
++    throw new NoEngineAvailableError(`COMPANY_MODEL_OVERRIDE engine '${override.engine}' is not available`);
++  }
 +  if (preferred && preferred !== 'auto') {
 +    if (usable.has(preferred)) return preferred;
 +    throw new NoEngineAvailableError(
@@ -763,6 +793,14 @@ index 000000000..50ab74fc1
 +  tiers: { small: string; medium: string; large: string };
 +  aliases: Record<string, string>;
 +} {
++  const override = modelOverride();
++  if (override) {
++    const spec = `${override.engine}/${override.model}`;
++    return {
++      tiers: { small: spec, medium: spec, large: spec },
++      aliases: Object.fromEntries(Object.values(config.roles).map(role => [role.alias, spec])),
++    };
++  }
 +  const configured = config.tiers[engine];
 +  if (!configured) throw new Error(`no model tiers configured for engine '${engine}' in roles.yaml`);
 +  const tiers = size ? { ...configured, large: configured[size] } : configured;
@@ -784,10 +822,10 @@ index 000000000..50ab74fc1
 +}
 diff --git a/packages/server/src/company/index.ts b/packages/server/src/company/index.ts
 new file mode 100644
-index 000000000..72ca94806
+index 000000000..ed45fad1f
 --- /dev/null
 +++ b/packages/server/src/company/index.ts
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,56 @@
 +/**
 + * Company layer entrypoint: schema, in-process dispatch, routes, role aliases in
 + * Archon's config, and the scheduler loop. Mounted once from server/src/index.ts.
@@ -797,7 +835,7 @@ index 000000000..72ca94806
 +import { createLogger } from '@archon/paths';
 +import { ensureSchema } from './db';
 +import { configureDispatch, type DispatchDeps } from './dispatch';
-+import { loadRoles } from './engines';
++import { loadRoles, modelOverride } from './engines';
 +import { registerCompanyRoutes } from './routes';
 +import { startScheduler } from './scheduler';
 +
@@ -812,8 +850,11 @@ index 000000000..72ca94806
 +  const config = await loadConfig();
 +  const existing = (config as { aliases?: Record<string, { provider?: string; model?: string }> }).aliases ?? {};
 +  const changed: Record<string, { provider: string; model: string }> = {};
++  const override = modelOverride();
 +  for (const role of Object.values(loadRoles().roles)) {
-+    const wanted = { provider: role.engine, model: role.models[role.engine] ?? role.model };
++    const wanted = override
++      ? { provider: override.engine, model: override.model }
++      : { provider: role.engine, model: role.models[role.engine] ?? role.model };
 +    const current = existing[role.alias];
 +    if (current?.provider !== wanted.provider || current.model !== wanted.model) changed[role.alias] = wanted;
 +  }
@@ -837,6 +878,8 @@ index 000000000..72ca94806
 +  } else {
 +    startScheduler();
 +  }
++  const override = modelOverride();
++  if (override) log.warn({ override }, 'company.model_override_active');
 +  log.info('company.layer_ready');
 +}
 diff --git a/packages/server/src/company/repo.ts b/packages/server/src/company/repo.ts

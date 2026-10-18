@@ -21,6 +21,8 @@ COMPANY_ROLES_PATH=…             # optional: alternative roles.yaml
 COMPANY_DATA_DIR=…               # optional: where project repositories live (default $ARCHON_HOME/company)
 ```
 
+Test mode: `COMPANY_MODEL_OVERRIDE=devin/swe-2-high` in `$ARCHON_HOME/.env` (restart) binds every role alias, every tier and every task size to that one model, so test runs cost no paid tokens. Remove the line and restart to return to the mapping below; the aliases in `config.yaml` are rewritten either way at boot.
+
 Task sizes and Devin models: the planner estimates hours per task; the scheduler stores a size (≤ 1.5 h small, ≤ 4 h medium, otherwise large) and, on Devin, binds the `large` tier that `archon-implement` runs on to that size's model from `tiers.devin` (defaults: small → `swe-2-high`, medium → `deepseek-v4-1-flash-high`, large → `gemini-4-argon-high`). Edit `agents/roles.yaml`; it is re-read when it changes, no restart needed.
 
 Engine selection: an explicit project/task engine is used when its credential verified; `auto` takes the role's preferred engine, then `defaults.fallback` in order, skipping engines whose own `checkCredential` did not report `usable`. The chosen engine is bound for the whole run through Archon's run-level `tiers` and `aliases`, so bundled workflows (`model: large`) and company workflows (`model: "@developer"`) both land on it.

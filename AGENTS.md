@@ -50,6 +50,10 @@ scripts/export-patches   # regenerate patches/ from archon/ against the base tag
 - Model/engine choice lives in `agents/roles.yaml`: `tiers.devin` doubles as task sizes (small/medium/large → model); each role alias binds its own engine when that engine is selectable (credential usable, or Claude's unverifiable login), else the run engine.
 - Secrets: none are stored by the company layer; `.env` files and `data/` are git-ignored; never print credential values.
 
+## Test mode (on as of 2026-10-19)
+
+`COMPANY_MODEL_OVERRIDE=devin/swe-2-high` is set in `data/archon-home/.env`: every role, tier and task size runs on Devin SWE-2 High (free). The per-role engines (Claude, Codex) and per-size Devin models in `agents/roles.yaml` are inactive until that line is removed and the server restarted.
+
 ## Known gaps (as of 2026-10-19)
 
 - `archon validate workflows` reports the `@role` aliases of the global pack as non-portable (it wants tiers/literals for global workflows); runtime resolution is verified by real runs. Accepted and documented in `docs/workflows.md`.

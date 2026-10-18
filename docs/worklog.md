@@ -2,7 +2,9 @@
 
 Chronological record of the build, for whoever continues it (human or AI). Times are Asia/Bangkok (UTC+7). Evidence is cited by Archon run id (`GET /api/workflows/runs/{id}`) or by file. Read [`AGENTS.md`](../AGENTS.md) for the map and rules.
 
-## Current state (updated 2026-10-19 00:15)
+## Current state (updated 2026-10-19 00:40)
+
+- **Test mode is on**: `COMPANY_MODEL_OVERRIDE=devin/swe-2-high` (see AGENTS.md).
 
 - Platform: Archon v0.12.1 (`5f2b4841…`) + Company Layer, running from `scripts/start` on http://127.0.0.1:3090. SQLite at `data/archon-home/archon.db`. Console at `/console/company`.
 - Engines: **devin** verified (plugin, sandboxed print mode; implementation model by task size: small `swe-2-high`, medium `deepseek-v4-1-flash-high`, large `gemini-4-argon-high`); **codex** verified (`gpt-5.6-sol`, run `c0526823`; roles pm, projectmanager, security); **claude** verified after the operator's `claude login` (run `aa885301`; roles ceo, architect, designer, reviewer); Devin may run Docker (`assistants.devin.allowDocker`); **pi** unconfigured.
@@ -72,3 +74,6 @@ Chronological record of the build, for whoever continues it (human or AI). Times
 ### 2026-10-19 00:25–00:35 — T1 attempt 7: first real code
 - Run `e1de236f`: Devin built and **committed** the full skeleton (`be910dd`, 13 files): pinned deps, FastAPI app with `/health`, tests (pytest 1 passed), Dockerfile, compose; `docker build` and a container run reported healthy. Verdict still red (`environment`) because `docker compose up -d --build` was denied the socket. Reproduction shows `docker compose` works when issued as its own command; the sandbox exclusion matches commands that **start with** `docker`, so a chained `cd … && docker compose …` stays sandboxed. Brief now says: run docker commands standalone with `-f`/`--project-directory`; stop servers you start and bind them to 127.0.0.1.
 - The agent left `uvicorn` listening on 0.0.0.0:8000 (pid 54600, outside the sandbox cleanup); stopped it.
+
+### 2026-10-19 00:40 — test mode
+- Operator asked to run everything on Devin SWE-2 High while testing to avoid token cost. Added `COMPANY_MODEL_OVERRIDE=<engine>/<model>` (engines.ts: `modelOverride`, used by `selectEngine`, `roleBindings` and the boot-time alias sync), set to `devin/swe-2-high` in `data/archon-home/.env`. Verified: T1's re-dispatched run `8da7824a` has every alias and tier bound to `devin/swe-2-high`. Remove the line to restore the roles.yaml mapping.
