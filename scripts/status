@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Show server, provider and company status.
+. "$(dirname "$0")/common.sh"
+if pid="$(server_pid)"; then ok "server pid $pid"; else warn "server not running (scripts/start)"; fi
+if h="$(curl -fsS -m 3 "$API/health" 2>/dev/null)"; then
+  ok "health: $(printf '%s' "$h" | python3 -I -c 'import sys,json; d=json.load(sys.stdin); print("version", d["version"], "| running workflows", d["runningWorkflows"])')"
+  curl -fsS -m 3 "$API/providers" | python3 -I -c 'import sys,json; print(" providers:", ", ".join(p["id"] for p in json.load(sys.stdin)["providers"]))'
+  curl -fsS -m 5 "$API/company/overview" 2>/dev/null | python3 -I -c 'import sys,json; d=json.load(sys.stdin); print(" company:", json.dumps(d.get("counts", d))[:300])' || warn "company API not reachable"
+else
+  fail "API not reachable on $API"
+fi

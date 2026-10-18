@@ -1,0 +1,69 @@
+name: company-quality-gate
+description: |
+  Independent quality gate on the integrated branch of an AI company project:
+  run the project's own checks (archon-validate), then have the QA engineer verify
+  every acceptance criterion against the running code and report which ones fail.
+  Judges and reports; never edits.
+
+model: medium
+mutates_checkout: false
+
+inputs:
+  acceptance_criteria: { required: true }
+  project_commands: { default: "" }
+  staging_url: { default: "" }
+
+returns: result
+outcome_field: green
+
+nodes:
+  - id: validate
+    include: archon-validate
+
+  - id: acceptance
+    command: acceptance-check
+    model: "@qa"
+    context: fresh
+    depends_on: [validate]
+    mutates_checkout: false
+    output_type: acceptance-report
+    output_format:
+      type: object
+      properties:
+        passed: { type: array, items: { type: string } }
+        failed:
+          type: array
+          items:
+            type: object
+            properties:
+              criterion: { type: string }
+              evidence: { type: string }
+              repair_title: { type: string }
+              repair_description: { type: string }
+            required: [criterion, evidence, repair_title, repair_description]
+        summary: { type: string }
+      required: [passed, failed, summary]
+
+  - id: result
+    script: gate-result
+    runtime: bun
+    depends_on: [validate, acceptance]
+    trigger_rule: all_done
+    always_run: true
+    with:
+      validate: { from: "$validate.output", if_skipped: null }
+      acceptance: { from: "$acceptance.output", if_skipped: null }
+    output_format:
+      type: object
+      properties:
+        green: { type: boolean }
+        summary: { type: string }
+        repairs:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string }
+              description: { type: string }
+            required: [title, description]
+      required: [green, summary, repairs]

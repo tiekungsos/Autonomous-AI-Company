@@ -1,0 +1,36 @@
+name: company-security-review
+description: |
+  Security review of an AI company project by the AI Security Engineer:
+  authentication, authorization, dependency vulnerabilities, insecure
+  configuration, exposed credentials and the OWASP Top 10. Produces a report
+  and the list of blocking findings as repair tasks. Read-only.
+
+model: large
+mutates_checkout: false
+
+returns: review
+outcome_field: clean
+
+nodes:
+  - id: review
+    command: security-review
+    model: "@security"
+    context: fresh
+    mutates_checkout: false
+    output_type: security-report
+    output_format:
+      type: object
+      properties:
+        clean: { type: boolean }
+        summary: { type: string }
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              severity: { type: string, enum: [critical, high, medium, low, info] }
+              title: { type: string }
+              file: { type: string }
+              fix: { type: string }
+            required: [severity, title, file, fix]
+      required: [clean, summary, findings]

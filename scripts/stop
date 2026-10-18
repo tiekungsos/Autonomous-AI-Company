@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stop the Archon server started by scripts/start (by recorded pid only).
+. "$(dirname "$0")/common.sh"
+if pid="$(server_pid)"; then
+  log "stopping pid $pid and its agent subprocesses"; kill_tree "$pid" TERM
+  for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+  kill -0 "$pid" 2>/dev/null && { warn "still alive, sending SIGKILL"; kill_tree "$pid" KILL; }
+  rm -f "$PID_FILE"; ok "stopped"
+else
+  rm -f "$PID_FILE"; ok "not running"
+fi

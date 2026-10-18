@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Tail the server log (pass -n N for the last N lines without following).
+. "$(dirname "$0")/common.sh"
+if [ "${1:-}" = "-n" ]; then tail -n "${2:-100}" "$SERVER_LOG"; else tail -n 50 -f "$SERVER_LOG"; fi

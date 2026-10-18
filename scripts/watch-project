@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Print a project's phase, tasks and open executions until it reaches a terminal phase.
+. "$(dirname "$0")/common.sh"
+PID="${1:?project id}"; INTERVAL="${2:-30}"; MAX="${3:-200}"
+for i in $(seq 1 "$MAX"); do
+  curl -s -m 20 "$API/company/projects/$PID" | python3 -I -c '
+import sys,json,time
+d=json.load(sys.stdin); p=d["project"]
+open_ex=[e for e in d["executions"] if e["status"] in ("dispatched","running","stale")]
+print(time.strftime("%H:%M:%S"), "phase:", p["phase"], "| paused:", p["paused"], "| spend:", d["spend"], "| open exec:", [(e["phase"], e["role"], e["engine"], (e["run_id"] or "")[:8]) for e in open_ex])
+print("   tasks:", [(t["key"], t["status"], t["attempts"]) for t in d["tasks"]])
+if p["blocked_reason"]: print("   blocked:", p["blocked_reason"][:300])
+if p["last_error"]: print("   error:", p["last_error"][:300])
+ev=d["events"][0] if d["events"] else None
+if ev: print("   last event:", ev["kind"], "-", ev["message"][:200])
+print("TERMINAL" if p["phase"] in ("COMPLETED","BLOCKED","CANCELLED") else "")
+' | tee -a "$LOG_DIR/watch-$PID.log" | grep -q TERMINAL && break
+  sleep "$INTERVAL"
+done

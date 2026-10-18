@@ -1,0 +1,9 @@
+# Upstream Archon checkout (pinned; see docs/upstream-upgrade.md and patches/)
+archon/
+node_modules/
+*.db
+*.db-*
+.env
+.DS_Store
+data/
+.bun/

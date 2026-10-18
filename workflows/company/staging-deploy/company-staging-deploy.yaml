@@ -1,0 +1,69 @@
+name: company-staging-deploy
+description: |
+  Deploy an AI company project to an isolated local staging environment with
+  Docker Compose and verify it: the DevOps engineer makes sure the deployment
+  files exist and are correct, a script builds and starts the stack under a
+  project-scoped compose name, waits for health, and reports the endpoints.
+
+model: medium
+worktree:
+  enabled: false
+
+inputs:
+  compose_project: { required: true }
+  project_commands: { default: "" }
+
+returns: verify
+outcome_field: healthy
+
+nodes:
+  - id: prepare
+    command: prepare-deploy
+    model: "@devops"
+    context: fresh
+    output_type: deployment-config
+    output_format:
+      type: object
+      properties:
+        compose_file: { type: string }
+        service: { type: string }
+        health_url: { type: string }
+        notes: { type: string }
+      required: [compose_file, service, health_url, notes]
+
+  - id: deploy
+    script: compose-up
+    runtime: bun
+    depends_on: [prepare]
+    timeout: 1800000
+    with:
+      compose_project: "$INPUTS.compose_project"
+      compose_file: "$prepare.output.compose_file"
+      health_url: "$prepare.output.health_url"
+    output_format:
+      type: object
+      properties:
+        started: { type: boolean }
+        healthy: { type: boolean }
+        url: { type: string }
+        services: { type: array, items: { type: string } }
+        log_tail: { type: string }
+      required: [started, healthy, url, services, log_tail]
+
+  - id: verify
+    script: deploy-verdict
+    runtime: bun
+    depends_on: [deploy]
+    always_run: true
+    trigger_rule: all_done
+    with:
+      deploy: { from: "$deploy.output", if_skipped: null }
+      prepare: { from: "$prepare.output", if_skipped: null }
+    output_format:
+      type: object
+      properties:
+        healthy: { type: boolean }
+        url: { type: string }
+        summary: { type: string }
+        services: { type: array, items: { type: string } }
+      required: [healthy, url, summary, services]

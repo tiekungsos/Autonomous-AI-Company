@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Start PostgreSQL (docker compose) and a second Archon instance with web authentication in an
+# isolated home on port 3091, then prove the company API is gated and reachable after sign-in.
+# Test credentials are generated here and stored only in data/auth-test/credentials.env.
+. "$(dirname "$0")/common.sh"
+AUTH_HOME="$DATA_DIR/archon-home-auth"; AUTH_PORT=3091; CRED="$DATA_DIR/auth-test/credentials.env"
+mkdir -p "$AUTH_HOME" "$DATA_DIR/auth-test"
+log "starting postgres"; (cd "$ROOT" && docker compose up -d postgres >/dev/null)
+for _ in $(seq 1 60); do docker exec autonomous-ai-company-postgres pg_isready -U postgres >/dev/null 2>&1 && break; sleep 2; done
+docker exec autonomous-ai-company-postgres psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname='archon_auth'" | grep -q 1 || docker exec autonomous-ai-company-postgres psql -U postgres -c "CREATE DATABASE archon_auth" >/dev/null
+if [ ! -f "$CRED" ]; then
+  printf 'AUTH_EMAIL=admin@localhost.test\nAUTH_PASSWORD=%s\nBETTER_AUTH_SECRET=%s\n' "$(openssl rand -base64 18 | tr -d '/+=')" "$(openssl rand -base64 32)" > "$CRED"
+fi
+# shellcheck disable=SC1090
+. "$CRED"
+cat > "$AUTH_HOME/.env" <<ENV
+DEFAULT_AI_ASSISTANT=claude
+CLAUDE_USE_GLOBAL_AUTH=true
+PORT=$AUTH_PORT
+HOST=127.0.0.1
+ARCHON_TELEMETRY_DISABLED=true
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/archon_auth
+BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET
+ARCHON_AUTH_ALLOWED_EMAILS=$AUTH_EMAIL
+COMPANY_SCHEDULER=off
+ENV
+mkdir -p "$AUTH_HOME/workflows"; ln -sfn "$ROOT/workflows/company" "$AUTH_HOME/workflows/company"
+log "starting authenticated archon on :$AUTH_PORT"
+(cd "$ARCHON_DIR" && ARCHON_HOME="$AUTH_HOME" nohup "$BUN" --cwd packages/server src/index.ts > "$LOG_DIR/archon-auth.log" 2>&1 & echo $! > "$DATA_DIR/archon-auth.pid")
+A="http://127.0.0.1:$AUTH_PORT/api"
+for _ in $(seq 1 60); do curl -fsS -m 2 "$A/health" >/dev/null 2>&1 && break; sleep 1; done
+echo "auth status: $(curl -s -m 5 "$A/auth/status")"
+echo "unauthenticated company overview -> HTTP $(curl -s -o /dev/null -w '%{http_code}' -m 5 "$A/company/overview")"
+JAR="$DATA_DIR/auth-test/cookies.txt"; rm -f "$JAR"
+SIGNUP=$(curl -s -m 10 -c "$JAR" -X POST "$A/auth/sign-up/email" -H 'Content-Type: application/json' -H "Origin: http://127.0.0.1:$AUTH_PORT" -d "{\"email\":\"$AUTH_EMAIL\",\"password\":\"$AUTH_PASSWORD\",\"name\":\"Admin\"}")
+echo "sign-up: $(printf '%s' "$SIGNUP" | head -c 160)  (422 = account already exists)"
+curl -s -m 10 -c "$JAR" -b "$JAR" -X POST "$A/auth/sign-in/email" -H 'Content-Type: application/json' -H "Origin: http://127.0.0.1:$AUTH_PORT" -d "{\"email\":\"$AUTH_EMAIL\",\"password\":\"$AUTH_PASSWORD\"}" -o /dev/null -w "sign-in -> HTTP %{http_code}\n"
+echo "authenticated company overview -> HTTP $(curl -s -o /dev/null -w '%{http_code}' -m 10 -b "$JAR" "$A/company/overview")"
+echo "authenticated company roles -> $(curl -s -m 10 -b "$JAR" "$A/company/roles" | head -c 80)"
+echo "wrong password -> HTTP $(curl -s -o /dev/null -w '%{http_code}' -m 10 -X POST "$A/auth/sign-in/email" -H 'Content-Type: application/json' -H "Origin: http://127.0.0.1:$AUTH_PORT" -d "{\"email\":\"$AUTH_EMAIL\",\"password\":\"wrong-password\"}")"
+echo "non-allowlisted sign-up -> HTTP $(curl -s -o /dev/null -w '%{http_code}' -m 10 -X POST "$A/auth/sign-up/email" -H 'Content-Type: application/json' -H "Origin: http://127.0.0.1:$AUTH_PORT" -d '{"email":"intruder@example.com","password":"Password123!x","name":"X"}')"
+ok "auth verification finished; instance left running on :$AUTH_PORT (pid $(cat "$DATA_DIR/archon-auth.pid")); stop with: kill \$(cat data/archon-auth.pid)"

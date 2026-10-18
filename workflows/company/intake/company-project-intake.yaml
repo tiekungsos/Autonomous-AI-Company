@@ -1,0 +1,202 @@
+name: company-project-intake
+description: |
+  AI company intake for a new software project: the CEO judges feasibility and
+  scope, the Product Manager writes the SRS, the Architect designs the system and
+  names the project's real build and test commands, the Designer specifies the UI
+  when there is one, and the Project Manager turns it into milestones and a
+  dependency-aware task backlog. Advisory: the checkout is left untouched; every
+  document lands in $ARTIFACTS_DIR and the task graph is the typed result.
+
+model: large
+mutates_checkout: false
+
+inputs:
+  project_name: { required: true }
+  description: { default: "" }
+  requirements: { required: true }
+  tech_stack: { default: "" }
+  repository_url: { default: "" }
+
+returns: compose
+outcome_field: feasible
+
+nodes:
+  - id: ceo
+    command: ceo-brief
+    model: "@ceo"
+    context: fresh
+    mutates_checkout: false
+    output_type: ceo-brief
+    output_format:
+      type: object
+      properties:
+        feasible: { type: boolean }
+        objectives: { type: array, items: { type: string } }
+        scope_in: { type: array, items: { type: string } }
+        scope_out: { type: array, items: { type: string } }
+        assumptions: { type: array, items: { type: string } }
+        risks: { type: array, items: { type: string } }
+        priority_notes: { type: string }
+        summary: { type: string }
+      required: [feasible, objectives, scope_in, scope_out, assumptions, risks, priority_notes, summary]
+
+  - id: pm
+    command: product-srs
+    model: "@pm"
+    context: fresh
+    depends_on: [ceo]
+    when: "$ceo.output.feasible == true"
+    mutates_checkout: false
+    output_type: srs
+    output_format:
+      type: object
+      properties:
+        has_ui: { type: boolean }
+        requirement_count: { type: integer }
+        acceptance_criteria: { type: array, items: { type: string } }
+        open_questions: { type: array, items: { type: string } }
+        summary: { type: string }
+      required: [has_ui, requirement_count, acceptance_criteria, open_questions, summary]
+
+  - id: architect
+    command: architecture
+    model: "@architect"
+    context: fresh
+    depends_on: [pm]
+    mutates_checkout: false
+    output_type: architecture
+    output_format:
+      type: object
+      properties:
+        stack: { type: string }
+        language: { type: string }
+        commands:
+          type: object
+          properties:
+            install: { type: string }
+            build: { type: string }
+            test: { type: string }
+            lint: { type: string }
+            run: { type: string }
+          required: [install, build, test, lint, run]
+        services: { type: array, items: { type: string } }
+        docker: { type: boolean }
+        risks: { type: array, items: { type: string } }
+        summary: { type: string }
+      required: [stack, language, commands, services, docker, risks, summary]
+
+  - id: designer
+    command: ux-spec
+    model: "@designer"
+    context: fresh
+    depends_on: [pm]
+    when: "$pm.output.has_ui == true"
+    mutates_checkout: false
+    output_type: ux-spec
+    output_format:
+      type: object
+      properties:
+        screens: { type: array, items: { type: string } }
+        summary: { type: string }
+      required: [screens, summary]
+
+  - id: planner
+    command: development-plan
+    model: "@projectmanager"
+    context: fresh
+    depends_on: [architect, designer]
+    trigger_rule: none_failed_min_one_success
+    mutates_checkout: false
+    output_type: development-plan
+    output_format:
+      type: object
+      properties:
+        milestones:
+          type: array
+          items:
+            type: object
+            properties:
+              seq: { type: integer }
+              title: { type: string }
+              description: { type: string }
+            required: [seq, title, description]
+        tasks:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              title: { type: string }
+              description: { type: string }
+              acceptance: { type: string }
+              role:
+                type: string
+                enum: [developer, developer-frontend, developer-backend, developer-fullstack, developer-database, developer-infrastructure, developer-integration, qa_engineer, devops_engineer, technical_writer]
+              milestone_seq: { type: integer }
+              depends_on: { type: array, items: { type: string } }
+              estimate_hours: { type: number }
+              size:
+                type: string
+                enum: [small, medium, large]
+            required: [key, title, description, acceptance, role, milestone_seq, depends_on, estimate_hours, size]
+        summary: { type: string }
+      required: [milestones, tasks, summary]
+
+  - id: compose
+    script: compose-intake
+    runtime: bun
+    depends_on: [ceo, pm, architect, designer, planner]
+    trigger_rule: all_done
+    always_run: true
+    with:
+      ceo: "$ceo.output"
+      pm: { from: "$pm.output", if_skipped: null }
+      architect: { from: "$architect.output", if_skipped: null }
+      designer: { from: "$designer.output", if_skipped: null }
+      planner: { from: "$planner.output", if_skipped: null }
+    output_format:
+      type: object
+      properties:
+        feasible: { type: boolean }
+        summary: { type: string }
+        assumptions: { type: array, items: { type: string } }
+        risks: { type: array, items: { type: string } }
+        acceptance_criteria: { type: array, items: { type: string } }
+        open_questions: { type: array, items: { type: string } }
+        stack: { type: string }
+        language: { type: string }
+        docker: { type: boolean }
+        commands:
+          type: object
+          properties:
+            install: { type: string }
+            build: { type: string }
+            test: { type: string }
+            lint: { type: string }
+            run: { type: string }
+          required: [install, build, test, lint, run]
+        milestones: { type: array, items: { type: object, properties: { seq: { type: integer }, title: { type: string }, description: { type: string } }, required: [seq, title, description] } }
+        tasks:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              title: { type: string }
+              description: { type: string }
+              acceptance: { type: string }
+              role: { type: string }
+              milestone_seq: { type: integer }
+              depends_on: { type: array, items: { type: string } }
+              estimate_hours: { type: number }
+              size: { type: string, enum: [small, medium, large] }
+            required: [key, title, description, acceptance, role, milestone_seq, depends_on, estimate_hours, size]
+        documents:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string }
+              path: { type: string }
+            required: [kind, path]
+      required: [feasible, summary, assumptions, risks, acceptance_criteria, open_questions, stack, language, docker, commands, milestones, tasks, documents]

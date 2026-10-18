@@ -1,0 +1,74 @@
+name: company-task-execution
+description: |
+  Execute one backlog task of an AI company project in an isolated worktree:
+  implement until the focused checks pass (archon-implement), run the project's
+  own validation gate independently (archon-validate), review the change through
+  the reviewer lenses (archon-review-block), push the branch, and return one
+  typed verdict. Never merges: integration belongs to the company scheduler.
+
+model: large
+
+inputs:
+  task_brief: { required: true }
+  work_order: { default: "" }
+  project_commands: { default: "" }
+
+returns: verdict
+outcome_field: green
+
+nodes:
+  - id: implement
+    include: archon-implement
+    with:
+      work: "$INPUTS.task_brief"
+
+  - id: validate
+    include: archon-validate
+    depends_on: [implement]
+    when: "$implement.output.green == true"
+
+  - id: review
+    include: archon-review-block
+    depends_on: [validate]
+    when: "$validate.output.green == true"
+    with:
+      work_order: "$INPUTS.work_order"
+
+  - id: push
+    script: push-branch
+    runtime: bun
+    depends_on: [implement, validate, review]
+    trigger_rule: all_done
+    always_run: true
+    output_format:
+      type: object
+      properties:
+        branch: { type: string }
+        head: { type: string }
+        pushed: { type: boolean }
+        changed_files: { type: integer }
+      required: [branch, head, pushed, changed_files]
+
+  - id: verdict
+    script: task-verdict
+    runtime: bun
+    depends_on: [push]
+    always_run: true
+    with:
+      implement: { from: "$implement.output", if_skipped: null }
+      validate: { from: "$validate.output", if_skipped: null }
+      review: { from: "$review.output", if_skipped: null }
+      push: "$push.output"
+    output_format:
+      type: object
+      properties:
+        green: { type: boolean }
+        stage: { type: string, enum: [implement, validate, review, done] }
+        red_cause: { type: string }
+        summary: { type: string }
+        branch: { type: string }
+        head: { type: string }
+        pushed: { type: boolean }
+        changed_files: { type: integer }
+        blocking_findings: { type: integer }
+      required: [green, stage, red_cause, summary, branch, head, pushed, changed_files, blocking_findings]

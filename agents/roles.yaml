@@ -1,0 +1,188 @@
+# AI company role profiles. Each role is instantiated on demand as a workflow node
+# (no idle processes). `engine` is an Archon provider id; `model` a provider model;
+# `alias` is the Archon alias the company layer binds for that role on each run.
+# Engines listed under `fallback` are tried in order when the preferred one is
+# unavailable. Timeouts are per execution; token budgets are per execution and
+# are enforced by the company scheduler through the run budget when the engine
+# reports usage.
+defaults:
+  timeout_minutes: 60
+  max_tokens: 400000
+  fallback: [devin, claude, codex, pi]
+
+roles:
+  ceo:
+    title: AI CEO
+    alias: "@ceo"
+    engine: claude
+    model: claude-opus-5-5-high
+    models:
+      devin: claude-opus-5-5-high
+      claude: opus
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [feasibility, scope, priorities, risks, completion review, executive report]
+    instructions: >-
+      You are the CEO of an autonomous software company. Judge feasibility and scope,
+      record explicit assumptions, name the major risks, and never implement code yourself.
+  product_manager:
+    title: AI Product Manager
+    alias: "@pm"
+    engine: codex
+    model: claude-opus-5-5-medium
+    models:
+      devin: claude-opus-5-5-medium
+      claude: opus
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [requirements analysis, SRS, personas, user stories, acceptance criteria]
+    instructions: >-
+      You turn a request into a software requirements specification with numbered,
+      testable requirements and acceptance criteria. Mark every assumption.
+  project_manager:
+    title: AI Project Manager
+    alias: "@projectmanager"
+    engine: codex
+    model: claude-opus-5-5-medium
+    models:
+      devin: claude-opus-5-5-medium
+      claude: opus
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [milestones, task breakdown, dependencies, allocation, replanning]
+    instructions: >-
+      You break approved scope into milestones and small, independently verifiable
+      tasks with explicit dependencies and a role for each task.
+  architect:
+    title: AI Software Architect
+    alias: "@architect"
+    engine: claude
+    model: claude-opus-5-5-high
+    models:
+      devin: claude-opus-5-5-high
+      claude: opus
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [architecture, stack, data model, API contracts, coding standards, technical risks]
+    instructions: >-
+      You design the system: boundaries, technology stack, data model, API contracts and
+      the project's build, test and run commands. Prefer boring, well-supported choices.
+  ui_ux_designer:
+    title: AI UI/UX Designer
+    alias: "@designer"
+    engine: claude
+    model: claude-sonnet-5-5
+    models:
+      devin: claude-sonnet-5-5
+      claude: sonnet
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [user flows, screen specs, component system, responsive layout, accessibility]
+  tech_lead:
+    title: AI Tech Lead
+    alias: "@techlead"
+    engine: devin
+    model: swe-2-high
+    models:
+      devin: swe-2-high
+      claude: sonnet
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [plan review, task coordination, integration conflicts, quality enforcement]
+  developer:
+    title: AI Developer
+    alias: "@developer"
+    engine: devin
+    model: swe-2-high
+    models:
+      devin: swe-2-high
+      claude: sonnet
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    specializations: [frontend, backend, fullstack, database, infrastructure, integration]
+    responsibilities: [implementation, focused tests, commits]
+    instructions: >-
+      You implement one task in the current checkout, run the focused checks for what
+      you changed, and commit. You never mark your own work verified.
+  qa_engineer:
+    title: AI QA Engineer
+    alias: "@qa"
+    engine: devin
+    model: swe-2-high
+    models:
+      devin: swe-2-high
+      claude: sonnet
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [test plans, test cases, test execution, defect detection, regression, acceptance]
+  security_engineer:
+    title: AI Security Engineer
+    alias: "@security"
+    engine: codex
+    model: claude-opus-5-5-medium
+    models:
+      devin: claude-opus-5-5-medium
+      claude: opus
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [authn/authz review, dependency vulnerabilities, insecure config, secrets, OWASP]
+  devops_engineer:
+    title: AI DevOps Engineer
+    alias: "@devops"
+    engine: devin
+    model: swe-2-high
+    models:
+      devin: swe-2-high
+      claude: sonnet
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [deployment config, build pipelines, staging deploys, health checks, diagnosis]
+  code_reviewer:
+    title: AI Code Reviewer
+    alias: "@reviewer"
+    engine: claude
+    model: claude-opus-5-5-medium
+    models:
+      devin: claude-opus-5-5-medium
+      claude: opus
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [correctness, security, maintainability, performance, architecture consistency, coverage]
+    instructions: >-
+      You review changes you did not write. Reject incomplete implementations. Every
+      blocking finding names a file and a concrete fix.
+  technical_writer:
+    title: AI Technical Writer
+    alias: "@writer"
+    engine: devin
+    model: swe-2-medium
+    models:
+      devin: swe-2-medium
+      claude: sonnet
+      codex: gpt-5.6-sol
+      pi: anthropic/claude-sonnet-5-5
+    responsibilities: [developer docs, API docs, install and deployment guides, delivery documentation]
+
+# Model tiers the bundled Archon workflows reference (`model: small|medium|large`),
+# per engine. The company layer binds these on every run it dispatches.
+# For Devin the tiers double as task sizes: the scheduler binds `large` to the model of
+# each task's size (small ≤ 1.5 h, medium ≤ 4 h, large above, from the planner's estimate),
+# so `archon-implement` (model: large) runs small tasks on SWE-2 High, medium ones on
+# DeepSeek V4.1 Flash and large ones on Gemini 4 Argon.
+tiers:
+  devin:
+    small: swe-2-high
+    medium: deepseek-v4-1-flash-high
+    large: gemini-4-argon-high
+  claude:
+    small: haiku
+    medium: sonnet
+    large: opus
+  codex:
+    small: gpt-5.6-sol
+    medium: gpt-5.6-sol
+    large: gpt-5.6-sol
+  pi:
+    small: anthropic/claude-haiku-5-5
+    medium: anthropic/claude-sonnet-5-5
+    large: anthropic/claude-sonnet-5-5

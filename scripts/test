@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Run the platform's own tests: company layer unit tests, Devin plugin tests, then API e2e tests
+# against a running server when one is reachable.
+. "$(dirname "$0")/common.sh"
+status=0
+log "company layer unit tests"
+# One Bun process per file: Bun module mocks leak across files run together (see archon/AGENTS.md).
+for f in "$ARCHON_DIR"/packages/server/src/company/*.test.ts; do (cd "$ARCHON_DIR" && "$BUN" test "$f") || status=1; done
+log "devin plugin tests"
+(cd "$ROOT/plugins/provider-devin" && "$BUN" test) || status=1
+if curl -fsS -m 3 "$API/health" >/dev/null 2>&1; then
+  log "api e2e tests (server on $API)"
+  (cd "$ROOT/tests" && ARCHON_API="$API" "$BUN" test) || status=1
+else
+  warn "server not running; skipping e2e tests (scripts/start)"
+fi
+exit $status

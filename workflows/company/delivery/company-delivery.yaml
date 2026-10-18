@@ -1,0 +1,58 @@
+name: company-delivery
+description: |
+  Delivery documentation for an AI company project: the technical writer produces
+  the developer documentation, API documentation, installation and deployment
+  guides and the delivery report in the repository, commits them, and pushes the
+  branch for integration.
+
+model: medium
+
+inputs:
+  delivery_context: { required: true }
+
+returns: verdict
+outcome_field: green
+
+nodes:
+  - id: write
+    command: delivery-docs
+    model: "@writer"
+    context: fresh
+    output_type: delivery-report
+    output_format:
+      type: object
+      properties:
+        files: { type: array, items: { type: string } }
+        summary: { type: string }
+      required: [files, summary]
+
+  - id: push
+    script: push-branch
+    runtime: bun
+    depends_on: [write]
+    always_run: true
+    output_format:
+      type: object
+      properties:
+        branch: { type: string }
+        head: { type: string }
+        pushed: { type: boolean }
+        changed_files: { type: integer }
+      required: [branch, head, pushed, changed_files]
+
+  - id: verdict
+    script: delivery-verdict
+    runtime: bun
+    depends_on: [push]
+    with:
+      write: "$write.output"
+      push: "$push.output"
+    output_format:
+      type: object
+      properties:
+        green: { type: boolean }
+        summary: { type: string }
+        branch: { type: string }
+        head: { type: string }
+        pushed: { type: boolean }
+      required: [green, summary, branch, head, pushed]

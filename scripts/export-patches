@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Export every local change to the pinned Archon checkout as patch files under patches/.
+# The upstream base tag is recorded in patches/BASE.
+. "$(dirname "$0")/common.sh"
+BASE_TAG="$(git -C "$ARCHON_DIR" describe --tags --abbrev=0 "$(git -C "$ARCHON_DIR" merge-base HEAD main 2>/dev/null || git -C "$ARCHON_DIR" rev-list --max-parents=0 HEAD | tail -1)" 2>/dev/null || echo v0.12.1)"
+rm -rf "$ROOT/patches"; mkdir -p "$ROOT/patches"
+echo "$BASE_TAG" > "$ROOT/patches/BASE"
+git -C "$ARCHON_DIR" rev-parse "$BASE_TAG" > "$ROOT/patches/BASE_COMMIT"
+if git -C "$ARCHON_DIR" diff --quiet "$BASE_TAG" && [ -z "$(git -C "$ARCHON_DIR" status --porcelain)" ]; then
+  warn "no local changes relative to $BASE_TAG"; exit 0
+fi
+git -C "$ARCHON_DIR" add -A
+git -C "$ARCHON_DIR" diff --cached --binary "$BASE_TAG" > "$ROOT/patches/0001-autonomous-ai-company.patch"
+git -C "$ARCHON_DIR" reset -q
+ok "wrote patches/0001-autonomous-ai-company.patch ($(wc -l < "$ROOT/patches/0001-autonomous-ai-company.patch") lines) against $BASE_TAG"

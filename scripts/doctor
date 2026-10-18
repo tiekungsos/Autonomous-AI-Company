@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Check host prerequisites and the installed platform.
+. "$(dirname "$0")/common.sh"
+check() { if "$@" >/dev/null 2>&1; then ok "$*"; else fail "$*"; fi; }
+log "host"
+echo " os: $(uname -srm)"
+[ -x "$BUN" ] && ok "bun $("$BUN" --version) at $BUN" || fail "bun missing at $BUN (scripts/setup)"
+command -v docker >/dev/null && ok "docker $(docker --version | cut -d' ' -f3 | tr -d ,)" || warn "docker missing (staging deploys need it)"
+command -v git >/dev/null && ok "git $(git --version | cut -d' ' -f3)" || fail "git missing"
+command -v gh >/dev/null && ok "gh $(gh --version | head -1 | cut -d' ' -f3)" || warn "gh missing (GitHub PR flows need it)"
+command -v claude >/dev/null && ok "claude $(claude --version 2>/dev/null | cut -d' ' -f1)" || warn "claude missing (Claude engine unavailable)"
+if command -v devin >/dev/null; then ok "devin $(devin --version 2>/dev/null | cut -d' ' -f2)"; devin auth status >/dev/null 2>&1 && ok "devin authenticated" || warn "devin not logged in (devin auth login)"; else warn "devin missing (Devin engine unavailable)"; fi
+log "archon"
+[ -d "$ARCHON_DIR/node_modules" ] && ok "archon deps installed" || fail "archon deps missing (scripts/setup)"
+[ -d "$ARCHON_DIR/packages/web/dist" ] && ok "web console built" || warn "web console not built (scripts/setup)"
+[ -f "$ARCHON_HOME/plugins/installed/local/autonomous-ai-company/plugins/provider-devin/receipt.json" ] && ok "devin provider plugin receipt present" || warn "devin plugin not installed (scripts/setup)"
+[ -e "$ARCHON_HOME/workflows/company/intake/company-project-intake.yaml" ] && ok "company workflow pack linked" || warn "company pack not linked (scripts/setup)"
+"$(dirname "$0")/status"

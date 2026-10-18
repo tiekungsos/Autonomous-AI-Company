@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# One-time setup: project-local Bun, Archon deps, web console build, Devin plugin receipt, env files.
+. "$(dirname "$0")/common.sh"
+if [ ! -d "$ARCHON_DIR/.git" ]; then
+  BASE_TAG="$(cat "$ROOT/patches/BASE")"
+  log "cloning Archon $BASE_TAG into archon/ and applying patches/"
+  git clone --quiet https://github.com/coleam00/Archon "$ARCHON_DIR"
+  git -C "$ARCHON_DIR" checkout --quiet -b company "$BASE_TAG"
+  [ "$(git -C "$ARCHON_DIR" rev-parse HEAD)" = "$(cat "$ROOT/patches/BASE_COMMIT")" ] || { fail "tag $BASE_TAG moved upstream; expected $(cat "$ROOT/patches/BASE_COMMIT")"; exit 1; }
+  git -C "$ARCHON_DIR" apply --whitespace=nowarn "$ROOT"/patches/*.patch
+  ok "archon/ ready on branch company"
+fi
+BUN_VERSION="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["engines"]["bun"])' "$ARCHON_DIR/package.json")"
+if [ ! -x "$BUN" ] || [ "$("$BUN" --version)" != "$BUN_VERSION" ]; then
+  log "installing bun $BUN_VERSION into $ROOT/.bun (host bun untouched)"
+  arch="$(uname -m)"; case "$arch" in arm64|aarch64) a=aarch64;; x86_64) a=x64;; *) fail "unsupported arch $arch"; exit 1;; esac
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  tmp="$(mktemp -d)"; curl -fsSL -o "$tmp/bun.zip" "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-$os-$a.zip"
+  (cd "$tmp" && unzip -qo bun.zip) && mkdir -p "$(dirname "$BUN")" && cp "$tmp/bun-$os-$a/bun" "$BUN" && chmod +x "$BUN" && rm -rf "$tmp"
+fi
+ok "bun $("$BUN" --version)"
+[ -f "$ROOT/.env" ] || { cp "$ROOT/.env.example" "$ROOT/.env"; ok "created .env from .env.example"; }
+[ -f "$ARCHON_HOME/.env" ] || { cp "$ROOT/infrastructure/archon-home.env.example" "$ARCHON_HOME/.env"; ok "created $ARCHON_HOME/.env"; }
+log "installing archon dependencies"; (cd "$ARCHON_DIR" && "$BUN" install)
+log "building web console"; (cd "$ARCHON_DIR" && "$BUN" run build:web)
+log "linking the company workflow pack into $ARCHON_HOME/workflows"; mkdir -p "$ARCHON_HOME/workflows"; ln -sfn "$ROOT/workflows/company" "$ARCHON_HOME/workflows/company"
+log "installing devin provider plugin"; (cd "$ROOT/plugins/provider-devin" && "$BUN" install && "$BUN" scripts/install.ts)
+log "installing e2e test dependencies"; (cd "$ROOT/tests" && "$BUN" install)
+ok "setup complete; run scripts/start"

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "kind": "provider",
+  "name": "provider-devin",
+  "description": "Cognition Devin CLI as an Archon coding engine (non-interactive print mode, sandboxed).",
+  "executable": "archon-provider-devin"
+}

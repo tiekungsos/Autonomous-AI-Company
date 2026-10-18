@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Prove restart recovery: with at least one execution running, restart the server and show
+# that the orphaned run is abandoned, recorded, and the work re-dispatched within limits.
+. "$(dirname "$0")/common.sh"
+before="$(curl -s -m 10 "$API/company/executions?limit=20" | python3 -I -c 'import sys,json; print([(e["phase"],e["status"],(e["run_id"] or "")[:8]) for e in json.load(sys.stdin)["executions"] if e["status"] in ("dispatched","running","stale")])')"
+log "open executions before restart: $before"
+[ "$before" != "[]" ] || { warn "nothing is running; start a project first"; exit 1; }
+"$(dirname "$0")/restart"
+log "waiting 45s for the first reconciliation tick"
+sleep 45
+curl -s -m 10 "$API/company/executions?limit=20" | python3 -I -c 'import sys,json; [print(" ", e["phase"], e["status"], (e["run_id"] or "")[:8], (e["error"] or "")[:60]) for e in json.load(sys.stdin)["executions"][:8]]'
+log "orphan events"
+curl -s -m 10 "$API/company/overview" | python3 -I -c 'import sys,json; [print(" ", ev["created_at"][11:19], ev["kind"], ev["message"][:140]) for ev in json.load(sys.stdin)["recentEvents"] if ev["kind"] in ("execution.orphaned","execution.dispatched","execution.failed")][:8]'

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Start the Archon server (with the company layer) in the background.
+. "$(dirname "$0")/common.sh"
+if pid="$(server_pid)"; then ok "already running (pid $pid) on port $ARCHON_PORT"; exit 0; fi
+[ -x "$BUN" ] || { fail "bun not found at $BUN; run scripts/setup"; exit 1; }
+log "starting archon server on 127.0.0.1:$ARCHON_PORT (ARCHON_HOME=$ARCHON_HOME)"
+cd "$ARCHON_DIR"
+nohup "$BUN" --cwd packages/server src/index.ts >> "$SERVER_LOG" 2>&1 &
+echo $! > "$PID_FILE"
+for _ in $(seq 1 40); do
+  sleep 1
+  if curl -fsS -m 2 "$API/health" >/dev/null 2>&1; then ok "healthy: http://127.0.0.1:$ARCHON_PORT/console (pid $(cat "$PID_FILE"))"; exit 0; fi
+done
+fail "server did not become healthy; see $SERVER_LOG"; exit 1
