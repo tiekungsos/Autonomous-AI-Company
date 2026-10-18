@@ -286,7 +286,12 @@ export class DevinProvider implements IAgentProvider {
       return;
     }
     const model = options?.model ?? config.model;
-    const sandbox = config.sandbox ?? true;
+    // Operator opt-in to Devin's bypass mode (`--permission-mode dangerous`, no OS sandbox):
+    // ARCHON_DEVIN_PERMISSION_MODE=bypass in the server environment. Read from the plugin's own
+    // environment rather than the run's config so it also reaches adopted runs, which inherit
+    // their original AI configuration.
+    const bypass = (process.env.ARCHON_DEVIN_PERMISSION_MODE ?? '').toLowerCase() === 'bypass';
+    const sandbox = bypass ? false : (config.sandbox ?? true);
     const workDir = await mkdtemp(join(tmpdir(), 'archon-devin-'));
     const promptPath = join(workDir, 'prompt.md');
     const exportPath = join(workDir, 'export.json');
@@ -305,7 +310,7 @@ export class DevinProvider implements IAgentProvider {
     argv.push(...(sandbox ? ['--sandbox'] : ['--permission-mode', 'dangerous']));
     if (model) argv.push('--model', model);
     if (resumeSessionId) argv.push('-r', resumeSessionId);
-    await this.log?.({ level: 'info', msg: 'devin.turn_start', bindings: { sandbox, resume: Boolean(resumeSessionId) } });
+    await this.log?.({ level: 'info', msg: 'devin.turn_start', bindings: { sandbox, bypass, resume: Boolean(resumeSessionId) } });
     yield { type: 'state_update', state: 'running' };
     let run: Awaited<ReturnType<typeof runCommand>>;
     try {
