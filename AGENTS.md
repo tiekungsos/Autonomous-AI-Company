@@ -38,6 +38,7 @@ scripts/export-patches   # regenerate patches/ from archon/ against the base tag
 - The Devin plugin streams tool calls live from Devin's session DB (`plugins/provider-devin/src/live.ts`); keep every call closed exactly once.
 - Devin's own record of a turn: `~/.local/share/devin/cli/sessions.db` (`sessions.working_directory` = the worktree; `tool_call_state` holds every tool call and whether it was rejected). Use it when a Devin node ends with prose or a missing file.
 - Company state: `GET /api/company/projects/{id}` (project, tasks, dependencies, documents, executions, deployments, events, spend). `POST /api/company/tick` runs one scheduler pass.
+- Before every restart after editing `packages/server/src/company`, run `cd archon/packages/server && bun x tsc --noEmit` (a syntax error stops the server from booting).
 - The server must be restarted for code changes in `packages/server/src/company` or the plugin; `agents/roles.yaml` and `workflows/company/*` are read live (workflows at dispatch, roles on change).
 
 ## Conventions and rules

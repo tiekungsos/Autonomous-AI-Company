@@ -1750,7 +1750,7 @@ index 000000000..669b5a70b
 +});
 diff --git a/packages/server/src/company/scheduler.ts b/packages/server/src/company/scheduler.ts
 new file mode 100644
-index 000000000..926ff0b37
+index 000000000..f1221afff
 --- /dev/null
 +++ b/packages/server/src/company/scheduler.ts
 @@ -0,0 +1,852 @@
@@ -2315,7 +2315,7 @@ index 000000000..926ff0b37
 +    intake ? `\n## Stack and commands\n${intake.stack}\n${JSON.stringify(intake.commands)}` : '',
 +    arch ? `\n## Architecture (excerpt)\n${arch.content.slice(0, 6000)}` : '',
 +    done ? `\n## Already completed and merged\n${done}` : '',
-+    '\n## Rules\n- Work only on this task. Keep changes small and committed (git commit before you finish).\n- Run the focused checks for what you changed; do not mark the task done while they fail.\n- Do not edit unrelated files; other agents work in parallel on other tasks.\n- You run non-interactively: never ask for permissions or access and never wait for a person.\n- Docker is available. You may build images and run containers to verify your work. Run every docker command as its own command that starts with `docker` (never chained after `cd` or `&&`; pass paths with `-f`/`--project-directory`), because only commands starting with `docker` may reach the Docker daemon. Name compose projects `t-<task key lowercase>`, publish ports only on loopback with an ephemeral host port (`127.0.0.1::<container port>`, or a free port you pick; never 3090, the platform's own port, and never 0.0.0.0), and run `docker compose -p <name> down -v` for anything you started before you finish.\n- Stop every server or process you start before you finish, and bind test servers to 127.0.0.1, never 0.0.0.0.\n- When an action is blocked, note it in your summary and still finish with the required structured answer.',
++    '\n## Rules\n- Work only on this task. Keep changes small and committed (git commit before you finish).\n- Run the focused checks for what you changed; do not mark the task done while they fail.\n- Do not edit unrelated files; other agents work in parallel on other tasks.\n- You run non-interactively: never ask for permissions or access and never wait for a person.\n- Docker is available. You may build images and run containers to verify your work. Run every docker command as its own command that starts with `docker` (never chained after `cd` or `&&`; pass paths with `-f`/`--project-directory`), because only commands starting with `docker` may reach the Docker daemon. Name compose projects `t-<task key lowercase>`, publish ports only on loopback with an ephemeral host port (`127.0.0.1::<container port>`, or a free port you pick; never 3090 (the platform port) and never 0.0.0.0), and run `docker compose -p <name> down -v` for anything you started before you finish.\n- Stop every server or process you start before you finish, and bind test servers to 127.0.0.1, never 0.0.0.0.\n- When an action is blocked, note it in your summary and still finish with the required structured answer.',
 +    history,
 +  ].join('\n');
 +  const workOrder = `Deliver task ${task.key} (${task.title}). Acceptance: ${task.acceptance}`;
