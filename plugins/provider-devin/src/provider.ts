@@ -16,6 +16,7 @@ import {
 import type { ProviderLogSink } from '@archon/provider-contract/plugin';
 import { descriptor, devinConfigSchema, type DevinConfig } from './descriptor.ts';
 import { augmentPromptForJsonSchema, tryParseStructuredOutput } from './structured.ts';
+import { DevinLiveWatcher } from './live.ts';
 
 /** Shape of the ATIF transcript `devin --export` writes after a print-mode turn. */
 interface DevinExport {
@@ -163,10 +164,12 @@ function tail(text: string): string {
   return trimmed.length > EVIDENCE_MAX ? trimmed.slice(-EVIDENCE_MAX) : trimmed;
 }
 
+type CommandResult = { exitCode: number; stdout: string; stderr: string; killed: 'abort' | 'timeout' | null };
+
 async function runCommand(
   argv: string[],
   options: { cwd?: string; env?: Record<string, string | undefined>; signal?: AbortSignal; timeoutMs?: number } = {}
-): Promise<{ exitCode: number; stdout: string; stderr: string; killed: 'abort' | 'timeout' | null }> {
+): Promise<CommandResult> {
   const proc = Bun.spawn(argv, {
     cwd: options.cwd,
     env: options.env as Record<string, string> | undefined,
@@ -312,15 +315,28 @@ export class DevinProvider implements IAgentProvider {
     if (resumeSessionId) argv.push('-r', resumeSessionId);
     await this.log?.({ level: 'info', msg: 'devin.turn_start', bindings: { sandbox, bypass, resume: Boolean(resumeSessionId) } });
     yield { type: 'state_update', state: 'running' };
-    let run: Awaited<ReturnType<typeof runCommand>>;
+    let run: CommandResult;
+    // Stream Devin's tool calls (commands, file reads and writes) while the turn runs.
+    const watcher = new DevinLiveWatcher(cwd, Math.floor(Date.now() / 1000), effectivePrompt.slice(0, 200));
     try {
-      run = await runCommand(argv, { cwd, env, signal: options?.abortSignal, timeoutMs: config.timeoutMs });
+      const pending = runCommand(argv, { cwd, env, signal: options?.abortSignal, timeoutMs: config.timeoutMs });
+      let settled: CommandResult | undefined;
+      void pending.then(result => {
+        settled = result;
+      }, () => undefined);
+      while (settled === undefined) {
+        await Promise.race([pending.catch(() => undefined), Bun.sleep(1000)]);
+        for (const chunk of watcher.poll()) yield chunk;
+      }
+      run = await pending;
     } catch (error) {
+      for (const chunk of watcher.finish()) yield chunk;
       await rm(workDir, { recursive: true, force: true });
       yield failure('transient', `failed to spawn devin: ${(error as Error).message}`);
       yield { type: 'settled' };
       return;
     }
+    for (const chunk of watcher.finish()) yield chunk;
     if (run.killed === 'abort') {
       await rm(workDir, { recursive: true, force: true });
       return;

@@ -34,4 +34,24 @@ describe.skipIf(!enabled)('devin plugin over stdio', () => {
       await closed;
     }
   }, 300_000);
+
+  test('streams the commands Devin runs as tool_call chunks while the turn is live', async () => {
+    const child = spawn(executable, [], { stdio: ['pipe', 'pipe', 'inherit'] });
+    const closed = new Promise(resolve => child.once('close', resolve));
+    const client = await connectProvider({ readable: Readable.toWeb(child.stdout) as never, writable: Writable.toWeb(child.stdin) as never });
+    try {
+      const chunks: { type: string; title?: string; toolCallId?: string; status?: string; output?: string }[] = [];
+      for await (const chunk of client.sendQuery('Run the shell command `echo hello-archon-live` and then reply with exactly: DONE', process.cwd())) chunks.push(chunk as never);
+      const calls = chunks.filter(c => c.type === 'tool_call');
+      const updates = chunks.filter(c => c.type === 'tool_call_update');
+      expect(calls.length).toBeGreaterThan(0);
+      expect(updates.map(u => u.toolCallId).sort()).toEqual(calls.map(c => c.toolCallId).sort());
+      expect(updates.some(u => (u.output ?? '').includes('hello-archon-live'))).toBe(true);
+      const resultIndex = chunks.findIndex(c => c.type === 'result');
+      expect(chunks.findIndex(c => c.type === 'tool_call')).toBeLessThan(resultIndex);
+    } finally {
+      await client.close();
+      await closed;
+    }
+  }, 300_000);
 });

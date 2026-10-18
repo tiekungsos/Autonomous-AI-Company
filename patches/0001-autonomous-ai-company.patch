@@ -1393,10 +1393,10 @@ index 000000000..83186ba6a
 +}
 diff --git a/packages/server/src/company/scheduler.test.ts b/packages/server/src/company/scheduler.test.ts
 new file mode 100644
-index 000000000..36d7fce71
+index 000000000..77729e77a
 --- /dev/null
 +++ b/packages/server/src/company/scheduler.test.ts
-@@ -0,0 +1,315 @@
+@@ -0,0 +1,331 @@
 +/**
 + * Lifecycle test with Archon's dispatch, run reads, git integration and engine
 + * checks replaced by in-memory fakes. Proves the scheduler's state machine:
@@ -1689,6 +1689,22 @@ index 000000000..36d7fce71
 +    expect(dispatched.filter(d => d.workflowName === 'company-task-execution' && d.inputs.task_brief.includes('T2:'))).toHaveLength(0);
 +  });
 +
++  test('a restart-orphaned retry still adopts the last reviewed run', async () => {
++    const project = await db.createProject({ name: 'Orphan', description: '', requirements: 'x' });
++    await scheduler.tick();
++    finishRun((await lastDispatch('company-project-intake')).conversationDbId, 'completed', 'succeeded', { ...intakeValue, tasks: [intakeValue.tasks[0]] } as Json);
++    await scheduler.tick();
++    const first = await lastDispatch('company-task-execution');
++    finishRun(first.conversationDbId, 'completed', 'failed', { green: false, stage: 'review', red_cause: 'review', summary: 'R1 fix it', branch: 'b', head: 'h', pushed: true, changed_files: 2, blocking_findings: 1 });
++    await scheduler.tick();
++    const second = await lastDispatch('company-task-execution');
++    expect(second.adoptRunId).toBe(`run-${first.conversationDbId}`);
++    // While the second attempt runs, the task still names the run it adopts.
++    const task = (await db.listTasks(project.id))[0]!;
++    expect(task.status).toBe('RUNNING');
++    expect(task.run_id).toBe(`run-${first.conversationDbId}`);
++  });
++
 +  test('pauses a project when its budget is exhausted', async () => {
 +    const project = await db.createProject({ name: 'Budget', description: '', requirements: 'x', budget_usd: 1 });
 +    await scheduler.tick();
@@ -1714,10 +1730,10 @@ index 000000000..36d7fce71
 +});
 diff --git a/packages/server/src/company/scheduler.ts b/packages/server/src/company/scheduler.ts
 new file mode 100644
-index 000000000..34c10a247
+index 000000000..ceace2901
 --- /dev/null
 +++ b/packages/server/src/company/scheduler.ts
-@@ -0,0 +1,833 @@
+@@ -0,0 +1,835 @@
 +/**
 + * The company scheduler: one tick loop inside the server process that advances
 + * every project through its lifecycle, dispatches Archon runs for ready work,
@@ -2238,7 +2254,9 @@ index 000000000..34c10a247
 +      { task: task, idempotencyKey: `task:${task.id}:attempt:${String(attempt)}`, engine: task.engine, size: task.size as TaskSize, adoptRunId }
 +    );
 +    if (execution) {
-+      await db.updateTask(task.id, { status: 'RUNNING', attempts: attempt, run_id: null, last_error: null });
++      // run_id keeps naming the last finished attempt until this one finishes: a retry after a
++      // restart adopts it.
++      await db.updateTask(task.id, { status: 'RUNNING', attempts: attempt, last_error: null });
 +      capacity -= 1;
 +    } else {
 +      break;

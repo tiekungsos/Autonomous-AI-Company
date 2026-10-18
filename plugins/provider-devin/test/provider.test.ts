@@ -96,3 +96,31 @@ describe('sandbox write scopes', () => {
     expect(docker?.sandbox).toEqual({ excluded: { allow: ['Exec(docker)'], ask: [], deny: [] } });
   });
 });
+
+describe('live tool-call stream', () => {
+  test('matches the turn by cwd, start time and prompt, then emits each call once and closes it once', async () => {
+    const { Database } = await import('bun:sqlite');
+    const { DevinLiveWatcher } = await import('../src/live.ts');
+    const dir = mkdtempSync(join(tmpdir(), 'devin-live-'));
+    const path = join(dir, 'sessions.db');
+    const db = new Database(path);
+    db.run('CREATE TABLE sessions (id TEXT, working_directory TEXT, created_at INTEGER)');
+    db.run('CREATE TABLE message_nodes (session_id TEXT, node_id INTEGER, chat_message TEXT)');
+    db.run('CREATE TABLE tool_call_state (session_id TEXT, tool_call_id TEXT, tool_call_json TEXT, tool_call_update_json TEXT)');
+    db.run("INSERT INTO sessions VALUES ('other', '/wt', 1000), ('mine', '/wt', 1001)");
+    db.run(`INSERT INTO message_nodes VALUES ('other', 2, '{"role":"user","content":"review the docs"}'), ('mine', 2, '{"role":"user","content":"# Task T1: build it"}')`);
+    db.run(`INSERT INTO tool_call_state VALUES ('mine', 'c1', '{"title":"Ran git","rawInput":{"command":"git status"},"_meta":{"cognition.ai/inferenceToolName":"exec"}}', NULL)`);
+    const watcher = new DevinLiveWatcher('/wt', 1000, '# Task T1', path);
+    expect(watcher.poll()).toEqual([{ type: 'tool_call', toolCallId: 'c1', name: 'exec', title: 'Ran git', rawInput: { command: 'git status' } }]);
+    expect(watcher.session).toBe('mine');
+    expect(watcher.poll()).toEqual([]);
+    db.run(`UPDATE tool_call_state SET tool_call_update_json = '{"status":"completed","content":[{"type":"content","content":{"type":"text","text":"clean"}}],"_meta":{"terminal_exit":{"exit_code":0}}}' WHERE tool_call_id = 'c1'`);
+    db.run(`INSERT INTO tool_call_state VALUES ('mine', 'c2', '{"title":"Ran pytest","_meta":{"cognition.ai/inferenceToolName":"exec"}}', NULL)`);
+    expect(watcher.poll()).toEqual([
+      { type: 'tool_call_update', toolCallId: 'c1', status: 'completed', output: 'clean', exitCode: 0 },
+      { type: 'tool_call', toolCallId: 'c2', name: 'exec', title: 'Ran pytest' },
+    ]);
+    expect(watcher.finish()).toEqual([{ type: 'tool_call_update', toolCallId: 'c2', status: 'cancelled' }]);
+    db.close();
+  });
+});
