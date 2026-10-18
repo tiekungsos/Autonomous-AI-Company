@@ -53,6 +53,7 @@ Findings fixed during the run (each verified by re-running):
 Progress:
 - Intake run `6a13d02c` completed (CEO, PM, Architect, Project Manager on Devin; 574,599 input / 45,801 output tokens): 4 milestones, 9 tasks with 12 dependency edges, documents `ceo-brief.md`, `srs.md` (14.8 KB), `architecture.md` (23 KB), `plan.md`, `intake.json` persisted and readable in the console.
 - Development: T1 (project skeleton, /health, Dockerfile, Compose) dispatched as `company-task-execution`; restart-recovery check performed on it (see the table).
+- 2026-10-19 02:30: T1 completed through implement → validate → review → two correction rounds (adopted branch, incremental review) → merged into `main` at `510e472`. T2 and T3 then ran in parallel.
 _Continued below._
 
 ## 11. Automated test results
