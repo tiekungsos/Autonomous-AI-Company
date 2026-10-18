@@ -14,6 +14,7 @@ Company limits (environment, read at boot):
 MAX_CONCURRENT_AGENTS=3          # open executions across all projects
 MAX_TASK_RETRIES=3               # attempts per task before BLOCKED
 MAX_REPAIR_ITERATIONS=5          # repair tasks per project before BLOCKED
+MAX_REVIEW_ROUNDS=5              # review correction rounds per task (do not consume task retries)
 MAX_AGENT_EXECUTION_MINUTES=60   # inactivity after which an execution is marked stale (never auto-failed)
 COMPANY_TICK_MS=5000
 COMPANY_SCHEDULER=off            # optional: disable the loop (tests)

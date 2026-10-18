@@ -1393,10 +1393,10 @@ index 000000000..83186ba6a
 +}
 diff --git a/packages/server/src/company/scheduler.test.ts b/packages/server/src/company/scheduler.test.ts
 new file mode 100644
-index 000000000..77729e77a
+index 000000000..669b5a70b
 --- /dev/null
 +++ b/packages/server/src/company/scheduler.test.ts
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,351 @@
 +/**
 + * Lifecycle test with Archon's dispatch, run reads, git integration and engine
 + * checks replaced by in-memory fakes. Proves the scheduler's state machine:
@@ -1509,7 +1509,7 @@ index 000000000..77729e77a
 +  db.setCompanyDatabase(adapter);
 +  await db.ensureSchema();
 +  // Tests leave executions open on purpose; the global cap is wide so each project's own cap (1) is what limits dispatch.
-+  scheduler.configureLimits({ maxConcurrentAgents: 50, maxTaskRetries: 2, maxRepairIterations: 2, maxAgentExecutionMinutes: 60, tickMs: 100000 });
++  scheduler.configureLimits({ maxConcurrentAgents: 50, maxTaskRetries: 2, maxRepairIterations: 2, maxReviewRounds: 3, maxAgentExecutionMinutes: 60, tickMs: 100000 });
 +});
 +afterAll(async () => {
 +  await adapter.close();
@@ -1705,6 +1705,26 @@ index 000000000..77729e77a
 +    expect(task.run_id).toBe(`run-${first.conversationDbId}`);
 +  });
 +
++  test('review correction rounds do not consume task retries, up to their own limit', async () => {
++    const project = await db.createProject({ name: 'Rounds', description: '', requirements: 'x' });
++    await scheduler.tick();
++    finishRun((await lastDispatch('company-project-intake')).conversationDbId, 'completed', 'succeeded', { ...intakeValue, tasks: [intakeValue.tasks[0]] } as Json);
++    await scheduler.tick();
++    const red = { green: false, stage: 'review', red_cause: 'review', summary: 'one more finding', branch: 'b', head: 'h', pushed: true, changed_files: 2, blocking_findings: 1 };
++    for (let round = 1; round <= 3; round += 1) {
++      finishRun((await lastDispatch('company-task-execution')).conversationDbId, 'completed', 'failed', red);
++      await scheduler.tick();
++      const task = (await db.listTasks(project.id))[0]!;
++      expect(task.status).toBe('RUNNING');
++      expect(task.repair_iterations).toBe(round);
++      expect(task.attempts - task.attempt_base).toBe(1);
++    }
++    // Round budget spent: the next red review counts as a normal attempt (retry limit 2 here).
++    finishRun((await lastDispatch('company-task-execution')).conversationDbId, 'completed', 'failed', red);
++    await scheduler.tick();
++    expect((await db.listTasks(project.id))[0]!.attempts - (await db.listTasks(project.id))[0]!.attempt_base).toBe(2);
++  });
++
 +  test('pauses a project when its budget is exhausted', async () => {
 +    const project = await db.createProject({ name: 'Budget', description: '', requirements: 'x', budget_usd: 1 });
 +    await scheduler.tick();
@@ -1730,10 +1750,10 @@ index 000000000..77729e77a
 +});
 diff --git a/packages/server/src/company/scheduler.ts b/packages/server/src/company/scheduler.ts
 new file mode 100644
-index 000000000..ceace2901
+index 000000000..9d7510d10
 --- /dev/null
 +++ b/packages/server/src/company/scheduler.ts
-@@ -0,0 +1,835 @@
+@@ -0,0 +1,852 @@
 +/**
 + * The company scheduler: one tick loop inside the server process that advances
 + * every project through its lifecycle, dispatches Archon runs for ready work,
@@ -2439,6 +2459,23 @@ index 000000000..ceace2901
 +  const branch = typeof value?.branch === 'string' ? value.branch : null;
 +  const summary = typeof value?.summary === 'string' ? value.summary : (execution.error ?? 'no result');
 +  if (!green) {
++    // A red review is a correction round, not a failed attempt: the code built, the project's
++    // checks passed and the reviewers named what to change. Those rounds have their own budget
++    // (`repair_iterations` counts them) and do not consume the task's retries.
++    if (value?.stage === 'review' && task.repair_iterations < limits.maxReviewRounds) {
++      await db.updateTask(task.id, {
++        status: 'READY',
++        branch,
++        run_id: execution.run_id,
++        attempt_base: task.attempt_base + 1,
++        repair_iterations: task.repair_iterations + 1,
++        last_verdict: 'red at review',
++        last_summary: summary,
++        last_error: null,
++      });
++      await db.addEvent({ project_id: project.id, task_id: task.id, kind: 'task.review_round', message: `${task.key}: review round ${String(task.repair_iterations + 1)} of ${String(limits.maxReviewRounds)} — correcting on the same branch` });
++      return;
++    }
 +    const retryable = task.attempts - task.attempt_base < limits.maxTaskRetries;
 +    await db.updateTask(task.id, {
 +      status: retryable ? 'READY' : 'BLOCKED',
@@ -2705,10 +2742,10 @@ index 000000000..2e46bc7dc
 +CREATE INDEX IF NOT EXISTS idx_company_events_project ON company_events(project_id, created_at);
 diff --git a/packages/server/src/company/types.ts b/packages/server/src/company/types.ts
 new file mode 100644
-index 000000000..713259980
+index 000000000..017ecdebb
 --- /dev/null
 +++ b/packages/server/src/company/types.ts
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,200 @@
 +/**
 + * Company layer domain types. The phase and task status vocabularies are the
 + * persisted wire values; the dashboard and tests read them by name.
@@ -2878,6 +2915,8 @@ index 000000000..713259980
 +  maxConcurrentAgents: number;
 +  maxTaskRetries: number;
 +  maxRepairIterations: number;
++  /** Review correction rounds per task (adopted retries after `red at review`); they do not consume task retries. */
++  maxReviewRounds: number;
 +  maxAgentExecutionMinutes: number;
 +  tickMs: number;
 +}
@@ -2892,6 +2931,7 @@ index 000000000..713259980
 +    maxConcurrentAgents: int('MAX_CONCURRENT_AGENTS', 3),
 +    maxTaskRetries: int('MAX_TASK_RETRIES', 3),
 +    maxRepairIterations: int('MAX_REPAIR_ITERATIONS', 5),
++    maxReviewRounds: int('MAX_REVIEW_ROUNDS', 5),
 +    maxAgentExecutionMinutes: int('MAX_AGENT_EXECUTION_MINUTES', 60),
 +    tickMs: int('COMPANY_TICK_MS', 5000),
 +  };
