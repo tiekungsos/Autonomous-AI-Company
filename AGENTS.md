@@ -51,6 +51,8 @@ scripts/export-patches   # regenerate patches/ from archon/ against the base tag
 - Bun module mocks leak across test files: run each `*.test.ts` in its own process (as `scripts/test` does), and spread the real module when mocking (`{ ...realModule, override }`).
 - Devin provider: print mode, `--sandbox`, prompt via `--prompt-file`, `--export` for session id and usage, per-turn `--config` granting `Write(...)` for the worktree, the repository's git common dir (or commits fail), and the run's artifact/state dirs; `assistants.devin.allowDocker: true` (in `$ARCHON_HOME/config.yaml`) adds `Exec(docker)` to `permissions.allow` and `sandbox.excluded.allow`; one JSON follow-up on the same session when a structured reply is missing. Agents must never ask for access (print mode cannot answer); the task brief says so.
 - Model/engine choice lives in `agents/roles.yaml`: `tiers.devin` doubles as task sizes (small/medium/large → model); each role alias binds its own engine when that engine is selectable (credential usable, or Claude's unverifiable login), else the run engine.
+- Do not set `PORT` in `$ARCHON_HOME/.env`: the server's env is inherited by agents and check scripts, and generated projects read `${PORT}`. Archon defaults to 3090.
+- Agents may leave containers behind; list them with `docker ps --format '{{.Names}} {{.Label "com.docker.compose.project.working_dir"}}'` and remove only those whose working dir is under `data/archon-home`.
 - Secrets: none are stored by the company layer; `.env` files and `data/` are git-ignored; never print credential values.
 
 ## Test mode (on as of 2026-10-19)
