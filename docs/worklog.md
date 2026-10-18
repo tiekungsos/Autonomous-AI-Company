@@ -68,3 +68,7 @@ Chronological record of the build, for whoever continues it (human or AI). Times
 
 ### 2026-10-19 — published
 - Pushed to `git@github.com:tiekungsos/Autonomous-AI-Company.git` (`main`, commit `ec653c5`). `archon/` and `data/` are excluded; the Archon changes ship as `patches/0001-autonomous-ai-company.patch` (verified to apply cleanly to a fresh `v0.12.1`), and `scripts/setup` now clones Archon and applies it when `archon/` is missing. Secret scan of the commit found nothing.
+
+### 2026-10-19 00:25–00:35 — T1 attempt 7: first real code
+- Run `e1de236f`: Devin built and **committed** the full skeleton (`be910dd`, 13 files): pinned deps, FastAPI app with `/health`, tests (pytest 1 passed), Dockerfile, compose; `docker build` and a container run reported healthy. Verdict still red (`environment`) because `docker compose up -d --build` was denied the socket. Reproduction shows `docker compose` works when issued as its own command; the sandbox exclusion matches commands that **start with** `docker`, so a chained `cd … && docker compose …` stays sandboxed. Brief now says: run docker commands standalone with `-f`/`--project-directory`; stop servers you start and bind them to 127.0.0.1.
+- The agent left `uvicorn` listening on 0.0.0.0:8000 (pid 54600, outside the sandbox cleanup); stopped it.
