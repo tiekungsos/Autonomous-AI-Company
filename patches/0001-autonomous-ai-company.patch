@@ -1750,10 +1750,10 @@ index 000000000..669b5a70b
 +});
 diff --git a/packages/server/src/company/scheduler.ts b/packages/server/src/company/scheduler.ts
 new file mode 100644
-index 000000000..f1221afff
+index 000000000..6577d79e9
 --- /dev/null
 +++ b/packages/server/src/company/scheduler.ts
-@@ -0,0 +1,852 @@
+@@ -0,0 +1,867 @@
 +/**
 + * The company scheduler: one tick loop inside the server process that advances
 + * every project through its lifecycle, dispatches Archon runs for ready work,
@@ -2391,9 +2391,24 @@ index 000000000..f1221afff
 +
 +/* ------------------------------ finished executions --------------------------- */
 +
++const GATE_PHASES = new Set(['qa', 'security', 'deploy', 'acceptance']);
++const LOST_DISPATCH = /^Archon (refused the dispatch|created no run)/;
++const MAX_LOST_GATE_RETRIES = 3;
++
++/** A gate whose dispatch never became a run is an infrastructure fault, not a code defect: re-enter the phase instead of opening a repair task. */
++async function retryLostGate(project: Project, execution: Execution): Promise<boolean> {
++  if (!GATE_PHASES.has(execution.phase) || execution.status !== 'failed' || execution.run_id || !LOST_DISPATCH.test(execution.error ?? '')) return false;
++  const lost = (await db.listExecutions(project.id, 200)).filter(e => e.phase === execution.phase && !e.run_id && LOST_DISPATCH.test(e.error ?? '')).length;
++  if (lost > MAX_LOST_GATE_RETRIES) return false;
++  await db.updateProject(project.id, { phase: project.phase });
++  await db.addEvent({ project_id: project.id, execution_id: execution.id, level: 'warn', kind: 'gate.redispatch', message: `${execution.workflow_name} never started (${String(lost)} of ${String(MAX_LOST_GATE_RETRIES)}); dispatching it again instead of opening a repair task` });
++  return true;
++}
++
 +async function onExecutionFinished(execution: Execution, run: Run | null, value: Json | null): Promise<void> {
 +  const project = await db.getProject(execution.project_id);
 +  if (!project || TERMINAL_PHASES.has(project.phase)) return;
++  if (await retryLostGate(project, execution)) return;
 +  switch (execution.phase) {
 +    case 'intake':
 +      return onIntakeFinished(project, execution, run, value);

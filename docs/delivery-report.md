@@ -54,7 +54,8 @@ Progress:
 - Intake run `6a13d02c` completed (CEO, PM, Architect, Project Manager on Devin; 574,599 input / 45,801 output tokens): 4 milestones, 9 tasks with 12 dependency edges, documents `ceo-brief.md`, `srs.md` (14.8 KB), `architecture.md` (23 KB), `plan.md`, `intake.json` persisted and readable in the console.
 - Development: T1 (project skeleton, /health, Dockerfile, Compose) dispatched as `company-task-execution`; restart-recovery check performed on it (see the table).
 - 2026-10-19 02:30: T1 completed through implement → validate → review → two correction rounds (adopted branch, incremental review) → merged into `main` at `510e472`. T2 and T3 then ran in parallel.
-_Continued below._
+- 2026-10-19: T2–T9 merged. T9 needed 13 attempts (a compose-healthcheck guard looped on one finding class until operator directives fixed the approach). AUTOMATED_QA green (27 acceptance criteria); SECURITY_REVIEW found starlette CVEs and header gaps → repair R1 merged after 2 review rounds; a transient worktree failure in the second QA gate opened a bogus repair R2 (fixed in the scheduler, `retryLostGate`; R2 closed by hand). Final gates green; project COMPLETED at `7034d891`.
+- Findings from the late phases: (5) a gate whose dispatch never becomes a run is an infrastructure fault and is re-dispatched (max 3) rather than turned into a repair task.
 
 ## 11. Automated test results
 `scripts/test` on 2026-10-18 (all against real SQLite, real routes, no mocked integrations in the e2e layer):
@@ -68,7 +69,7 @@ _Continued below._
 Loopback binding; sandboxed Devin with explicit write scopes; untrusted-input quoting in prompts; no credentials stored by the layer; auth gate verified; audit log (`company_events`). See `docs/security.md`.
 
 ## 13. Deployment verification
-_Recorded from the project's staging phase._
+`company-staging-deploy` brought the project up with docker compose on a loopback ephemeral port (`http://127.0.0.1:64455`, compose project `shortlink-api`) and reported healthy; acceptance verification then confirmed 27 criteria against it. Delivery docs (installation, API reference, deployment) were merged into the project's `main` (`7034d891`).
 
 ## 14. Known limitations
 - Devin print mode streams only the final message; tool activity is visible in Archon's run page only as state updates.
@@ -77,7 +78,7 @@ _Recorded from the project's staging phase._
 - The staging deploy runs in the live integration checkout, so only one deployment per project at a time.
 
 ## 15. Remaining blockers
-- None external. Remaining work is running the real project through integration, gates, staging and delivery.
+- None external. The real project ran through all lifecycle phases to COMPLETED; open items are product improvements listed in `docs/worklog.md`.
 
 ## 16–18. Operations
 Start: `scripts/start`. Stop: `scripts/stop` (and `kill $(cat data/archon-auth.pid)` for the auth instance; `docker compose down` for PostgreSQL). Upgrade: `docs/upstream-upgrade.md`.
