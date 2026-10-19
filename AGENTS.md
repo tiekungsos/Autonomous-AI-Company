@@ -56,6 +56,10 @@ scripts/export-patches   # regenerate patches/ from archon/ against the base tag
 - Agents may leave containers behind; list them with `docker ps --format '{{.Names}} {{.Label "com.docker.compose.project.working_dir"}}'` and remove only those whose working dir is under `data/archon-home`.
 - Secrets: none are stored by the company layer; `.env` files and `data/` are git-ignored; never print credential values.
 
+## Picking up the work
+
+Read `docs/worklog.md` → "Current state (handover)" and "Next steps" first. The platform keeps running between chat sessions; check it with `scripts/status` and the project with `scripts/watch-project <id>`. Operator guidance for a task goes into that task's `description` (it reaches every brief); a restart re-dispatches a running attempt without consuming a retry.
+
 ## Test mode (on as of 2026-10-19)
 
 `COMPANY_MODEL_OVERRIDE=devin/swe-2-high` is set in `data/archon-home/.env`: every role, tier and task size runs on Devin SWE-2 High (free). The per-role engines (Claude, Codex) and per-size Devin models in `agents/roles.yaml` are inactive until that line is removed and the server restarted.

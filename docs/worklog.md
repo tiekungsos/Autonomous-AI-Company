@@ -2,23 +2,29 @@
 
 Chronological record of the build, for whoever continues it (human or AI). Times are Asia/Bangkok (UTC+7). Evidence is cited by Archon run id (`GET /api/workflows/runs/{id}`) or by file. Read [`AGENTS.md`](../AGENTS.md) for the map and rules.
 
-## Current state (updated 2026-10-19 00:40)
+## Current state (handover, 2026-10-19 10:20 local / 03:20 UTC)
 
-- **Test mode is on**: `COMPANY_MODEL_OVERRIDE=devin/swe-2-high` (see AGENTS.md).
+Written before the operator switches Claude accounts. Everything below keeps running without this chat session.
 
-- Platform: Archon v0.12.1 (`5f2b4841…`) + Company Layer, running from `scripts/start` on http://127.0.0.1:3090. SQLite at `data/archon-home/archon.db`. Console at `/console/company`.
-- Engines: **devin** verified (plugin, sandboxed print mode; implementation model by task size: small `swe-2-high`, medium `deepseek-v4-1-flash-high`, large `gemini-4-argon-high`); **codex** verified (`gpt-5.6-sol`, run `c0526823`; roles pm, projectmanager, security); **claude** verified after the operator's `claude login` (run `aa885301`; roles ceo, architect, designer, reviewer); Devin may run Docker (`assistants.devin.allowDocker`); **pi** unconfigured.
-- Tests: scheduler 4/4, engines 4/4, plugin 7 (incl. the `DEVIN_E2E=1` stdio test), API e2e 9/9, auth verification and restart-recovery verification passed (see `docs/delivery-report.md`).
-- Real project "Shortlink API": **T1 merged to main (`510e472`); T2/T3 running in parallel.** Earlier history: (`0109f6f3-3d6b-47e0-91a5-5206fcb604d3`): intake done (run `6a13d02c`; 4 milestones, 9 tasks, documents persisted). Development: T1 attempts 1–3 failed for three different environment reasons (restart test, Docker/access prompt, workspace writes rejected by the per-turn config); each fixed in turn (see journal). After the third fix the project is resumed (attempts reset) and T1 runs again. `MAX_TASK_RETRIES=3`; **Resume** on the project page resets attempts.
-- Not yet exercised on a real project: task integration/merge, QA gate, security review, staging deploy, acceptance, delivery. All are implemented and unit-tested.
+**Platform (running, detached from the chat):**
+- Archon v0.12.1 + Company Layer, server pid in `data/archon-server.pid`, http://127.0.0.1:3090 (console `/console/company`). Start/stop with `scripts/start` / `scripts/stop` (stop kills the server's agent subprocesses too). A watcher (`scripts/watch-project`) appends to `data/logs/watch-<project>.log`.
+- `data/archon-home/.env` (operator settings, git-ignored): `COMPANY_MODEL_OVERRIDE=devin/swe-2-high` (**test mode**: every role and tier on Devin SWE-2 High), `ARCHON_DEVIN_PERMISSION_MODE=bypass` (Devin unsandboxed, set by the operator), `HOST=127.0.0.1`, no `PORT` (do not add it; it leaks into agents). `config.yaml` has `assistants.devin.allowDocker: true` and the role aliases (rewritten from `agents/roles.yaml` at every boot).
+- Engines verified: Devin (primary), Codex (`gpt-5.6-sol`), Claude (`claude/opus`, uses the host's Claude Code login: after an account switch run `claude login` again; unused while test mode is on). Pi not configured.
+- Repo: git@github.com:tiekungsos/Autonomous-AI-Company.git (`main`). `archon/` is rebuilt from `patches/` by `scripts/setup`; run `scripts/export-patches` before committing.
+
+**Real project "Shortlink API"** (`0109f6f3-3d6b-47e0-91a5-5206fcb604d3`, Python/FastAPI/SQLite/Docker), phase `AUTONOMOUS_DEVELOPMENT`:
+- T1–T8 COMPLETED and merged into the project's `main` (`data/archon-home/company/projects/<id>/origin.git`, head `ad08980` "Merge T8"). The API, persistence, tests, Dockerfile, compose, smoke script and README are done.
+- **T9 RUNNING** (final acceptance + repo-hygiene tests), run `9b4c06ab`, its last allowed retry after this one is 1 (`attempts - attempt_base` = 2 of 3; review rounds 5 of 5 used). T9 looped on one test: a guard that the compose healthcheck is correct. Operator directives 1–5 were appended to T9's **task description** (that is what reaches every brief): use `docker compose config --format json` instead of parsing YAML; compare `healthcheck.test` with `==`; run docker by absolute path with an empty environment; pass the compose file explicitly with `-f`. Each directive closed its finding (review-verified); the last open finding was the hand-copied default-file table that directive 5 removes.
 
 ## Next steps
 
-1. Watch `scripts/watch-project 0109f6f3-3d6b-47e0-91a5-5206fcb604d3 30 400` (or the project page). If T1 blocks again, read its run's provider events, fix the cause, press Resume.
-2. When tasks start merging, confirm `integrateBranch` merged into `main` of `data/archon-home/company/projects/<id>/origin.git` and that T2/T3 ran in parallel (concurrency 2).
-3. Watch the gates: `company-quality-gate` (needs the project's own checks to run in a fresh worktree; the discover agent must install deps), `company-security-review` (Codex), `company-staging-deploy` (Docker on the host, compose project `company-<id12>`), acceptance, `company-delivery`.
-4. Fill `docs/delivery-report.md` §10 and §13 with the real outcomes; re-run `scripts/test`; `scripts/export-patches`.
-6. Optional improvements noted along the way: stream Devin tool activity (read the transcript export incrementally), PR-based integration for GitHub remotes (`archon-pr`/`archon-deliver` are available), per-node token accounting for better cost estimates.
+1. Watch T9: `scripts/watch-project 0109f6f3-3d6b-47e0-91a5-5206fcb604d3 30 600`, or the console Task Board. Findings: `sqlite3 data/archon-home/archon.db "select last_verdict, last_summary from company_tasks where key='T9'"`.
+   - If T9 merges, the scheduler moves on by itself: INTEGRATION → AUTOMATED_QA (`company-quality-gate`) → SECURITY_REVIEW → STAGING_DEPLOYMENT (`company-staging-deploy`, docker compose on 127.0.0.1) → ACCEPTANCE_VERIFICATION → DELIVERY → COMPLETED. None of these has run on a real project yet; expect defects and fix them like the ones in the journal.
+   - If T9 blocks: either add one more directive to its description and press Resume, or ask the operator whether to drop the compose-healthcheck guard from T9's scope (staging deploy verifies health anyway).
+   - Adding a directive while a T9 run is in flight does not reach that run (the brief is built at dispatch). Restart (`scripts/restart`) to re-dispatch: a restart-orphaned attempt does not consume a retry.
+2. After COMPLETED: fill `docs/delivery-report.md` §10/§13, `scripts/test`, `scripts/export-patches`, commit, push.
+3. Product improvements found but not built: (a) when review raises the same finding class twice ("replan"), escalate to an approach change (tech-lead role) instead of another patch round; (b) a lighter review policy for test-only tasks via the project's `.archon/sdlc/policy/`; (c) operator notes as a first-class field instead of editing the task description; (d) the PostgreSQL container from `scripts/verify-auth` is still up (`docker compose down` to remove).
+4. To leave test mode: remove `COMPANY_MODEL_OVERRIDE` from `data/archon-home/.env`, `scripts/restart`.
 
 ## Journal
 
